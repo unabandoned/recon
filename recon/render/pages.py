@@ -117,7 +117,7 @@ def overview(obs: dict, trend: dict) -> str:
             + '<h2 class="section">Topology</h2>'
             '<p class="lede">Consumers on top, forks beneath, coloured by what is in '
             'their trees. <a href="topology.html">Full view →</a></p>'
-            f'<div class="panel">{svg.render(nodes, edges)}{svg.LEGEND}</div>'
+            f'<div class="panel">{svg.panel(svg.render(nodes, edges), nodes, edges)}</div>'
         ),
     )
 
@@ -236,26 +236,53 @@ def queue(obs: dict) -> str:
 # --------------------------------------------------------------------------- #
 # Packages
 # --------------------------------------------------------------------------- #
+STATE_BLURB = {
+    "time_bomb": "abandoned and carrying their own dependencies — the only actionable class",
+    "unknown": "could not be measured; unmeasured is not the same as healthy",
+    "inert": "abandoned but declaring no dependencies — nothing beneath them to rot",
+    "alive": "released within the threshold",
+}
+
+
 def packages(obs: dict) -> str:
+    ordered = sorted(
+        obs["packages"],
+        key=lambda p: (STATE_ORDER.get(p["state"], 9), -len(p["forks"]), p["name"]),
+    )
+    counts: dict[str, int] = {}
+    for p in ordered:
+        counts[p["state"]] = counts.get(p["state"], 0) + 1
+
     rows = []
-    for p in sorted(obs["packages"],
-                    key=lambda p: (STATE_ORDER.get(p["state"], 9), -len(p["forks"]), p["name"])):
+    seen: set[str] = set()
+    for p in ordered:
+        # The table is sorted by state, so repeating the chip on every row would
+        # print `time bomb` 46 times in a column where every visible value is the
+        # same — loud, and carrying no information. One banded header per group
+        # says it once and gives the eye somewhere to rest.
+        if p["state"] not in seen:
+            seen.add(p["state"])
+            rows.append(
+                f'<tr class="group-head"><td colspan="7">{chip(p["state"])}'
+                f'<b>{counts[p["state"]]}</b>'
+                f'<span>{e(STATE_BLURB.get(p["state"], ""))}</span></td></tr>'
+            )
         shortest = p.get("shortest")
         route = (trail(shortest["fork"], shortest["via"], p["name"])
                  if shortest else '<span class="empty">—</span>')
-        adv = ", ".join(a["id"] for a in p["advisories"]) or "—"
+        adv = ", ".join(a["id"] for a in p["advisories"])
         ev = p.get("evidence", {})
         last = (ev.get("last_release") or {})
         when = last.get("value") if last.get("status") == "ok" else "unknown"
+        emergency = p["advisories"] and p["state"] == "time_bomb"
         rows.append(
-            f'<tr class="{"emergency" if p["advisories"] and p["state"] == "time_bomb" else ""}">'
-            f'<td class="mono">{e(p["name"])}</td>'
-            f'<td>{chip(p["state"])}</td>'
-            f'<td class="prov" title="{e(p["reason"])}">{e(when)}</td>'
+            f'<tr class="{"emergency" if emergency else ""}">'
+            f'<td class="mono strong">{e(p["name"])}</td>'
             f'<td class="num">{p["ndeps"]}</td>'
             f'<td class="num">{len(p["forks"])}</td>'
-            f'<td class="mono">{e(adv)}</td>'
-            f'<td class="wrap">{route}</td></tr>'
+            f'<td class="prov tight" title="{e(p["reason"])}">{e(when)}</td>'
+            f'<td class="mono tight">{e(adv)}</td>'
+            f'<td class="path">{route}</td></tr>'
         )
 
     return page(
@@ -269,9 +296,10 @@ def packages(obs: dict) -> str:
         ),
         integrity=obs["integrity"], css=CSS, meta=obs["meta"],
         body=table(
-            ["Package", "State", "Last release", "Own deps", "Forks",
+            ["Package", "Own deps", "Forks", "Last release",
              "Advisories", "Shortest path in"],
-            rows, empty="No packages resolved.",
+            rows, empty="No packages resolved.", columns=6,
+            widths=["23%", "9%", "7%", "12%", "10%", "39%"],
         ),
     )
 
@@ -298,7 +326,7 @@ def topology(obs: dict) -> str:
             "— and the build fails if the two disagree."
         ),
         integrity=obs["integrity"], css=CSS, meta=obs["meta"],
-        body=note + f'<div class="panel">{svg.render(nodes, edges)}{svg.LEGEND}</div>',
+        body=note + f'<div class="panel">{svg.panel(svg.render(nodes, edges), nodes, edges)}</div>',
     )
 
 

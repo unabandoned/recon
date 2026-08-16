@@ -13,6 +13,7 @@ every aggregate can show its denominator without any extra plumbing.
 from __future__ import annotations
 
 import html
+import re
 from typing import Any, Iterable
 
 __all__ = [
@@ -100,15 +101,60 @@ def trail(root: str, via: Iterable[str], leaf: str) -> str:
     hops = [f'<span class="root">{e(root)}</span>']
     hops += [f"<span>{e(v)}</span>" for v in (via or [])]
     hops.append(f'<span class="leaf">{e(leaf)}</span>')
-    return '<span class="trail">' + "<i>→</i>".join(hops) + "</span>"
+    # Plain text with a hairline separator. These were filled pills, which put
+    # ~440 grey blocks on the packages page and made the least important column
+    # the loudest thing on it.
+    return '<span class="trail">' + "<i>›</i>".join(hops) + "</span>"
 
 
-def table(headers: list[str], rows: list[str], *, empty: str = "Nothing to show.") -> str:
+def table(headers: list[str], rows: list[str], *, empty: str = "Nothing to show.",
+          columns: int | None = None, widths: list[str] | None = None) -> str:
+    """`columns` pads the header row when body rows span more cells than headers —
+    a grouped table has a full-width band the headers do not describe.
+
+    `widths` switches the table to fixed layout and makes the column widths
+    authoritative. Auto layout hands surplus width to whichever column has the
+    longest content, which is how a column of empty cells kept 185px while the
+    one carrying the dependency paths was squeezed into three wrapped lines.
+    """
     if not rows:
         return f'<p class="empty">{e(empty)}</p>'
+    rows = [_label_cells(r, headers) for r in rows]
     head = "".join(f"<th>{h}</th>" for h in headers)
-    return ('<div class="scroll"><table class="t"><thead><tr>' + head
+    if columns and columns > len(headers):
+        head += "<th></th>" * (columns - len(headers))
+    cols = ""
+    cls = "t"
+    if widths:
+        cols = "<colgroup>" + "".join(f'<col style="width:{w}">' for w in widths) + "</colgroup>"
+        cls = "t fixed"
+    return (f'<div class="scroll"><table class="{cls}">{cols}<thead><tr>' + head
             + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>")
+
+
+_TD = re.compile(r"<td(?=[ >])")
+
+
+def _label_cells(row_html: str, headers: list[str]) -> str:
+    """Stamp each cell with its column heading.
+
+    On a phone the table stops being a table: `thead` is hidden and every row
+    becomes a card of label/value pairs, which needs each cell to carry its own
+    label. Doing it here rather than at eleven call sites keeps the page code
+    writing plain rows, and a cell that spans the row (a group band) is left
+    alone because it has no single column to name.
+    """
+    if "colspan" in row_html:
+        return row_html
+    index = 0
+
+    def stamp(_match: "re.Match[str]") -> str:
+        nonlocal index
+        label = headers[index] if index < len(headers) else ""
+        index += 1
+        return f'<td data-label="{e(label)}"' if label else "<td"
+
+    return _TD.sub(stamp, row_html)
 
 
 def banner(integrity: dict) -> str:

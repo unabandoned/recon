@@ -128,6 +128,17 @@ skim past the panel, which costs more than it can catch.
   above were in the checking machinery, not the thing being checked. The question
   to ask is "are both derivations answering the same question?" before "which fork
   is misconfigured?"
+- The pages are built mobile-first at two breakpoints, and they answer different
+  questions. **900px** is where a wide table stops working: `thead` is hidden and
+  each row becomes a card of label/value pairs, using the `data-label` that
+  `components.table` stamps onto every cell. **720px** is where the page chrome
+  narrows: padding, one scrolling strip of tabs, single-column option grids.
+  Check both when touching `render/` — a tablet at 768px is in card mode but full
+  chrome, which is the combination easiest to break by accident.
+- The topology ships twice: the computed SVG for wide screens and the same edges
+  as a list for narrow ones, with CSS picking one. That is a form decision, not a
+  fallback — the graph is 1,088px wide with its root centred, so a phone opens on
+  empty canvas, and scaling it to fit puts the labels back under 3px.
 - The queue's scoring function is deliberately simple and legible. If it grows, keep
   every input visible next to the rank — a ranking nobody can check is exactly the
   kind of confident number this repository exists to distrust.

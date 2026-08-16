@@ -371,6 +371,33 @@ class Rendering(unittest.TestCase):
         self.assertIn("not trustworthy", html)
         self.assertIn("banner fail", html)
 
+    def test_every_table_cell_carries_its_column_label(self):
+        """The phone layout hides `thead` and renders each row as a card, so a
+        cell with no label loses the only thing that said what it was."""
+        from recon.render.components import table
+        out = table(["Package", "Forks"],
+                    ['<tr><td class="mono">once</td><td class="num">3</td></tr>'])
+        self.assertIn('<td data-label="Package" class="mono">', out)
+        self.assertIn('<td data-label="Forks" class="num">', out)
+
+    def test_a_full_width_band_is_left_unlabelled(self):
+        """A group header spans every column, so no single heading names it."""
+        from recon.render.components import table
+        out = table(["A", "B"], ['<tr class="group-head"><td colspan="2">time bomb</td></tr>'])
+        self.assertIn('<td colspan="2">', out)
+        self.assertNotIn("data-label", out.split("<tbody>")[1])
+
+    def test_pages_carry_the_narrow_screen_rules(self):
+        for name, doc in self.html.items():
+            self.assertIn("@media (max-width: 720px)", doc, name)
+            self.assertIn("@media (max-width: 900px)", doc, name)
+
+    def test_topology_ships_a_narrow_screen_alternative(self):
+        """A node-link diagram is the wrong form at 390px, so the same edges are
+        emitted as a list and CSS picks one — no JS, no second request."""
+        self.assertIn("topo-narrow", self.html["topology.html"])
+        self.assertIn("topo-list", self.html["topology.html"])
+
     def test_no_page_escapes_its_own_markup(self):
         """A crude but effective guard against unescaped interpolation."""
         for name, doc in self.html.items():

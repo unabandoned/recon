@@ -11,7 +11,7 @@ from __future__ import annotations
 PALETTE = """
 :root {
   --bg: #fbfbfd; --panel: #ffffff; --panel-2: #f5f6f9;
-  --fg: #14161c; --fg-muted: #666e7d;
+  --fg: #14161c; --fg-muted: #565e6b;
   --border: #d9dde5; --border-muted: #e8ebf0;
   --accent: #4b3fd6; --accent-bg: #eeecfd;
   --ok: #17794a; --ok-bg: #e5f5ec;
@@ -23,7 +23,7 @@ PALETTE = """
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0e1015; --panel: #171a21; --panel-2: #1e222b;
-    --fg: #e7e9ee; --fg-muted: #98a1b1;
+    --fg: #e7e9ee; --fg-muted: #a3acbb;
     --border: #2b303b; --border-muted: #232830;
     --accent: #9b91ff; --accent-bg: #221f3d;
     --ok: #4ec98a; --ok-bg: #10281c;
@@ -35,7 +35,7 @@ PALETTE = """
 }
 :root[data-theme="dark"] {
   --bg: #0e1015; --panel: #171a21; --panel-2: #1e222b;
-  --fg: #e7e9ee; --fg-muted: #98a1b1;
+  --fg: #e7e9ee; --fg-muted: #a3acbb;
   --border: #2b303b; --border-muted: #232830;
   --accent: #9b91ff; --accent-bg: #221f3d;
   --ok: #4ec98a; --ok-bg: #10281c;
@@ -84,8 +84,8 @@ h2.section { margin: 26px 0 10px; font-size: 16px; letter-spacing: -.01em; }
   border-radius: 10px; padding: 12px 14px; border-top: 3px solid var(--border); }
 .tile .n { font-size: 26px; font-weight: 650; letter-spacing: -.02em;
   font-variant-numeric: tabular-nums; line-height: 1.1; }
-.tile .l { font-size: 11.5px; color: var(--fg-muted); margin-top: 3px; }
-.tile .d { font-size: 11px; color: var(--fg-muted); margin-top: 5px;
+.tile .l { font-size: 12.5px; color: var(--fg-muted); margin-top: 3px; }
+.tile .d { font-size: 12px; line-height: 1.45; color: var(--fg-muted); margin-top: 5px;
   border-top: 1px dashed var(--border-muted); padding-top: 5px; }
 .tile.bad { border-top-color: var(--bad); } .tile.bad .n { color: var(--bad); }
 .tile.warn { border-top-color: var(--warn); } .tile.warn .n { color: var(--warn); }
@@ -109,24 +109,44 @@ h2.section { margin: 26px 0 10px; font-size: 16px; letter-spacing: -.01em; }
 
 /* ---- tables ---- */
 .scroll { overflow-x: auto; border: 1px solid var(--border-muted); border-radius: 10px; }
-table.t { border-collapse: collapse; width: 100%; font-size: 12.5px; min-width: 560px; }
-table.t th, table.t td { text-align: left; padding: 8px 11px;
-  border-bottom: 1px solid var(--border-muted); white-space: nowrap; vertical-align: top; }
-table.t thead th { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
-  color: var(--fg-muted); background: var(--panel-2); position: sticky; top: 0; }
+table.t { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 560px; }
+table.t th, table.t td { text-align: left; padding: 9px 13px;
+  border-bottom: 1px solid var(--border-muted); white-space: nowrap; vertical-align: baseline;
+  line-height: 1.5; }
+table.t tbody tr:nth-child(even) { background: var(--panel-2); }
+table.t tbody tr:hover { background: var(--panel-2); }
+/* A state group's first row carries the label; the rest inherit it from the rule above. */
+table.t tbody tr.group-start td { border-top: 2px solid var(--border); padding-top: 14px; }
+table.t tbody tr.group-start:first-child td { border-top: none; }
+table.t td.mono.strong { color: var(--fg); font-weight: 600; }
+table.t tr.group-head td { background: var(--panel-2); border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border); padding: 9px 13px; white-space: normal; }
+table.t tr.group-head:hover td { background: var(--panel-2); }
+table.t tr.group-head b { font-variant-numeric: tabular-nums; margin: 0 8px 0 10px;
+  font-size: 13.5px; }
+table.t tr.group-head span { color: var(--fg-muted); font-size: 12.5px; font-weight: 400; }
+table.t thead th { font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--fg-muted); background: var(--panel-2); position: sticky; top: 0;
+  white-space: normal; vertical-align: bottom; }
 table.t tbody tr:last-child td { border-bottom: none; }
-table.t td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.t td.num, table.t th.num { text-align: right; font-variant-numeric: tabular-nums;
+  width: 1%; white-space: nowrap; }
+table.t td.tight { width: 1%; white-space: nowrap; }
+table.t td.dim { color: var(--fg-muted); }
 table.t td.wrap { white-space: normal; min-width: 220px; }
+table.t.fixed { table-layout: fixed; min-width: 820px; }
+table.t td.path { white-space: normal; overflow-wrap: anywhere; }
+table.t.fixed td.mono { overflow-wrap: anywhere; white-space: normal; }
 table.t td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 table.t tr.emergency td { background: var(--bad-bg); }
 
 /* ---- trails ---- */
 .trail { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; }
-.trail span { background: var(--chip-bg); border-radius: 4px; padding: 1px 5px; color: var(--fg-muted); }
-.trail .root { color: var(--accent); font-weight: 650; }
-.trail .leaf { color: var(--bad); font-weight: 650; }
-.trail i { color: var(--fg-muted); font-style: normal; opacity: .6; }
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.trail span { color: var(--fg-muted); }
+.trail .root { color: var(--accent); font-weight: 600; }
+.trail .leaf { color: var(--fg); font-weight: 650; }
+.trail i { color: var(--fg-muted); opacity: .6; font-style: normal; padding: 0 2px; }
 .routes { display: flex; flex-direction: column; gap: 4px; }
 
 /* ---- integrity banner ---- */
@@ -161,7 +181,7 @@ table.t tr.emergency td { background: var(--bad-bg); }
   border-radius: 9px; padding: 10px 12px; font-size: 12.5px; }
 .opt .a { font-weight: 650; text-transform: uppercase; font-size: 10.5px;
   letter-spacing: .06em; color: var(--accent); margin-bottom: 3px; }
-.opt .c { color: var(--fg-muted); margin-top: 5px; font-size: 11.5px; }
+.opt .c { color: var(--fg-muted); margin-top: 5px; font-size: 12.5px; }
 
 /* ---- misc ---- */
 .spark { display: block; height: 34px; width: 100%; overflow: visible; }
@@ -175,4 +195,72 @@ table.t tr.emergency td { background: var(--bad-bg); }
 
 
 def stylesheet(extra: str = "") -> str:
-    return PALETTE + BASE + extra
+    # MOBILE last: its media query must win over the base rules it narrows.
+    return PALETTE + BASE + extra + MOBILE
+
+
+# --------------------------------------------------------------------------- #
+# Small screens
+# --------------------------------------------------------------------------- #
+# A phone is not a narrow desktop. A six-column table that scrolls sideways is a
+# desktop table you have to drag, and on the Forks page that meant seeing "FORK"
+# and half of "GRADE" — every other fact hidden behind a gesture nobody makes.
+# Below this width the tables stop being tables: each row becomes a card of
+# label/value pairs, using the `data-label` each cell carries.
+MOBILE = """
+@media (max-width: 720px) {
+  .wrap { padding: 18px 14px 48px; }
+  .masthead h1 { font-size: 19px; }
+  .lede { font-size: 14px; margin-bottom: 14px; }
+
+  /* One scrolling strip instead of three stacked rows of tabs. */
+  nav.tabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; gap: 2px; }
+  nav.tabs::-webkit-scrollbar { display: none; }
+  nav.tabs a { white-space: nowrap; padding: 8px 11px; }
+
+  .panel { padding: 14px; border-radius: 11px; }
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 9px; }
+  .tile .n { font-size: 23px; }
+
+  .q > summary { padding: 12px 13px; gap: 6px 10px; }
+  .q .why { flex-basis: 100%; }
+  .q .body { padding: 0 13px 13px; }
+  .opts { grid-template-columns: 1fr; }
+  .grid2 { grid-template-columns: 1fr; }
+  .banner { padding: 12px 13px; }
+}
+
+@media (max-width: 900px) {
+  /* Tables become cards. */
+  .scroll { border: none; border-radius: 0; overflow-x: visible; }
+  table.t, table.t.fixed { display: block; min-width: 0; width: 100%; }
+  table.t colgroup, table.t thead { display: none; }
+  table.t tbody { display: block; }
+  table.t tbody tr { display: block; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; margin: 0 0 9px; }
+  table.t tbody tr:nth-child(even) { background: var(--panel); }
+  table.t tbody tr:hover { background: var(--panel); }
+  table.t tbody tr.emergency { border-color: var(--bad); }
+  table.t td { display: flex; gap: 12px; align-items: baseline; width: auto !important;
+    justify-content: space-between; text-align: left; white-space: normal;
+    border-bottom: 1px solid var(--border-muted); padding: 8px 12px; }
+  table.t tr td:last-child { border-bottom: none; }
+  table.t td:empty { display: none; }
+  table.t td::before { content: attr(data-label); color: var(--fg-muted);
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    flex: 0 0 33%; font-weight: 600; }
+  table.t td:not([data-label])::before { content: none; }
+  /* The first cell is the card's title, so it gets the whole line. */
+  table.t td:first-child { display: block; font-size: 14.5px; padding-top: 11px; }
+  table.t td:first-child::before { content: none; }
+  table.t tr.group-head td { display: block; padding: 9px 12px; }
+  table.t tr.group-head td::before { content: none; }
+  table.t tr.group-start td { border-top: none; padding-top: 8px; }
+
+  /* A node-link diagram is the wrong form here: swap in the edge list. The
+     graph is 1,088px wide, so anything narrower opens on empty canvas. */
+  .topo-scroll, .topo-hint, .topo-legend { display: none; }
+  .topo-narrow { display: block; }
+}
+"""
