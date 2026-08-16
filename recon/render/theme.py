@@ -245,6 +245,13 @@ MOBILE = """
   table.t td { display: flex; gap: 12px; align-items: baseline; width: auto !important;
     justify-content: space-between; text-align: left; white-space: normal;
     border-bottom: 1px solid var(--border-muted); padding: 8px 12px; }
+  /* A card cell is a flex row, and a flex item will not shrink below its
+     min-content width. A package name is one unbreakable token — an
+     `@unabandoned/combine-source-map` in the value column pushes the whole
+     document sideways. `anywhere` (not `break-word`) is the one that also
+     reduces the intrinsic minimum, so the item can actually shrink. */
+  table.t td, table.t td code { overflow-wrap: anywhere; }
+  table.t td > * { min-width: 0; }
   table.t tr td:last-child { border-bottom: none; }
   table.t td:empty { display: none; }
   table.t td::before { content: attr(data-label); color: var(--fg-muted);

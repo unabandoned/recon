@@ -387,9 +387,14 @@ class Rendering(unittest.TestCase):
         self.html = pages.render_all(self.obs, self.delta, {})
 
     def test_every_page_renders(self):
-        self.assertEqual(sorted(self.html), sorted(
-            ["index.html", "forks.html", "queue.html", "packages.html",
-             "topology.html", "changes.html", "health.html"]))
+        """The nav and the rendered set are the same set.
+
+        Asserted against `PAGES` rather than a hand-copied list, because the
+        failure this prevents is a tab linking to a page nothing writes — and a
+        second hardcoded list is how that gets shipped.
+        """
+        from recon.render.components import PAGES
+        self.assertEqual(sorted(self.html), sorted(href for href, _ in PAGES))
         for name, doc in self.html.items():
             self.assertTrue(doc.startswith("<!doctype html>"), name)
             self.assertIn("</html>", doc)

@@ -69,6 +69,12 @@ def worst_status(checks: Iterable[Check]) -> str:
     return max((c.status for c in checks), key=lambda s: order[s], default=PASS)
 
 
+def counts(checks: Iterable[Check]) -> dict[str, int]:
+    """The per-status tally every integrity block carries."""
+    checks = list(checks)
+    return {s: sum(1 for c in checks if c.status == s) for s in (PASS, WARN, FAIL)}
+
+
 # --------------------------------------------------------------------------- #
 # M1 — errors are a state, never a default
 # --------------------------------------------------------------------------- #

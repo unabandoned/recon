@@ -536,10 +536,7 @@ def finish(core: dict, checks: list[integrity.Check], *, built_at: str,
     obs["integrity"] = {
         "status": integrity.worst_status(checks),
         "checks": [c.to_json() for c in sorted(checks, key=lambda c: c.id)],
-        "counts": {
-            status: sum(1 for c in checks if c.status == status)
-            for status in (integrity.PASS, integrity.WARN, integrity.FAIL)
-        },
+        "counts": integrity.counts(checks),
     }
     return obs
 
