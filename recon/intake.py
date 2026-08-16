@@ -167,6 +167,10 @@ def audit(
         )
 
     tree: Tree = tree_fact.payload
+    # The resolver derives the real package name from the lockfile. For a repo
+    # spec (`github:owner/repo`) the spec string carries no package name at all,
+    # so `spec_name` above is only a placeholder until the tree is in hand.
+    root_name = tree.root or root_name
 
     # --- classify every node, exactly as the daily build does ---------------
     states: dict[str, State] = {}
@@ -248,7 +252,7 @@ def audit(
         "meta": {
             "spec": spec,
             "package": root_name,
-            "root": tree.nodes[tree.root_key].ident if tree.root_key in tree.nodes else spec,
+            "root": root_name,
             "audited_date": today.isoformat(),
             "abandonment_days": abandonment_days,
             "builder_sha": builder_sha,

@@ -87,8 +87,26 @@ def compare(baseline: Lockfile, subject: Lockfile) -> dict:
             "was": was, "now": now,
             "was_version": a[was].version, "now_version": b[now].version,
             "into_scope": _scope(now), "out_of_scope": _scope(was),
+            "via_alias": False,
         })
+    # An alias keeps the manifest key and swaps the package underneath it —
+    # `"buffer": "^5"` becoming `"buffer": "npm:@unabandoned/buffer@^6"`. The key
+    # is unchanged on both sides, so nothing above sees it, and it is exactly the
+    # adoption move this org makes. Reported as a replacement, which is what it is.
+    for name in sorted(set(a) & set(b)):
+        if a[name].package == b[name].package:
+            continue
+        replaced.append({
+            "package": name,
+            "was": a[name].package, "now": b[name].package,
+            "was_version": a[name].version, "now_version": b[name].version,
+            "into_scope": _scope(b[name].package),
+            "out_of_scope": _scope(a[name].package),
+            "via_alias": True,
+        })
+
     swapped = {r["was"] for r in replaced} | {r["now"] for r in replaced}
+    aliased_keys = {r["package"] for r in replaced if r.get("via_alias")}
 
     added = [_dep_row(b[n]) for n in added_names if n not in swapped]
     removed = [_dep_row(a[n]) for n in removed_names if n not in swapped]
@@ -98,6 +116,11 @@ def compare(baseline: Lockfile, subject: Lockfile) -> dict:
     pinning: list[dict] = []
     for name in sorted(set(a) & set(b)):
         old, new = a[name], b[name]
+        # An alias swap is already reported as a replacement. Listing it again
+        # as a version bump would compare two different packages' versions and
+        # call the result a bump.
+        if name in aliased_keys:
+            continue
         if old.version != new.version and old.version and new.version:
             bumped.append({
                 "package": name,

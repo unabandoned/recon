@@ -170,6 +170,13 @@ def intake(args) -> int:
     dashboard publishes with a red banner: a visibly failed audit gets looked
     at, a missing one gets assumed fine. The exit code carries the verdict.
     """
+    if not (args.spec or "").strip():
+        # Without this the report lands at `reports/<timestamp>.json` instead of
+        # `reports/<spec>/<timestamp>.json`, where the index — which expects one
+        # directory per spec — never finds it again.
+        sys.stderr.write("error: a spec is required, e.g. factor-bundle@2.0.0\n")
+        return 2
+
     started = time.monotonic()
     out = Path(os.environ.get("RECON_REPORTS", "reports"))
     inventory_path = Path(
@@ -266,6 +273,18 @@ def compare(args) -> int:
     That is why it is fast enough to be interactive and exact enough to act on.
     """
     out = Path(os.environ.get("RECON_COMPARISONS", "comparisons"))
+
+    # Both refs are validated before anything is fetched. A malformed ref is a
+    # usage error, not a finding — reporting it as "one side could not be read"
+    # would file it alongside "that repo has no lockfile", which is a fact about
+    # the world rather than about the command line.
+    for ref in (args.baseline, args.subject):
+        try:
+            lockfile_mod.parse_repo(ref)
+        except ValueError as exc:
+            sys.stderr.write(f"error: {exc}\n")
+            return 2
+
     session = Session(clock=_utc_now)
     compared_at = _utc_now()
 

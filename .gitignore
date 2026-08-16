@@ -4,3 +4,5 @@ __pycache__/
 public/
 snapshots/
 .data/
+reports/
+comparisons/

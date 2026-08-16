@@ -62,6 +62,20 @@ class Dep:
     specifier: str      # the range in the manifest — "^2.2.1"
     version: str        # what the lockfile pinned — "2.2.1"
     dev: bool = False
+    # The package actually installed under `name`, when an alias makes them
+    # differ: `"buffer": "npm:@unabandoned/buffer@^6"` keeps the key `buffer`
+    # while installing something else entirely. That indirection *is* the
+    # adoption mechanism this org uses, so a diff that only reads keys cannot
+    # see the single change it most needs to report.
+    resolved_name: str = ""
+
+    @property
+    def package(self) -> str:
+        return self.resolved_name or self.name
+
+    @property
+    def aliased(self) -> bool:
+        return bool(self.resolved_name) and self.resolved_name != self.name
 
     @property
     def pinned(self) -> bool:
@@ -101,6 +115,21 @@ def split_ident(ident: str) -> tuple[str, str]:
     if at <= 0:
         return ident, ""
     return ident[:at], ident[at + 1:]
+
+
+def _alias_target(specifier: str) -> str:
+    """The real package behind an `npm:` alias specifier, or "" when there isn't one.
+
+    Only the unambiguous signal is used. pnpm also encodes the resolved package
+    in the version string for aliases, but that field carries peer context and
+    other decoration too, and guessing a package name out of it is the kind of
+    inference that produces a confident wrong answer.
+    """
+    spec = (specifier or "").strip()
+    if not spec.startswith("npm:"):
+        return ""
+    name, _version = split_ident(spec[4:])
+    return name
 
 
 def clean_version(version: str) -> str:
@@ -143,7 +172,11 @@ def _read_npm(text: str) -> Lockfile:
     for block, dev in (("dependencies", False), ("devDependencies", True)):
         for name, spec in (root.get(block) or {}).items():
             node = entries.get(f"node_modules/{name}") or {}
-            direct[name] = Dep(name, str(spec), clean_version(node.get("version", "")), dev)
+            # npm records an alias by putting the real package in `name` while
+            # the directory keeps the alias. Authoritative, so no guessing.
+            direct[name] = Dep(name, str(spec),
+                               clean_version(node.get("version", "")), dev,
+                               str(node.get("name") or ""))
 
     resolved: dict[str, set[str]] = {}
     for key, meta in entries.items():
@@ -182,7 +215,8 @@ def _read_pnpm(text: str) -> Lockfile:
                 spec, version = entry.get("specifier", ""), entry.get("version", "")
             else:                       # pnpm v5 and earlier: name -> version
                 spec, version = "", entry
-            direct[name] = Dep(name, str(spec), clean_version(str(version)), dev)
+            direct[name] = Dep(name, str(spec), clean_version(str(version)), dev,
+                               _alias_target(str(spec)))
 
     resolved: dict[str, set[str]] = {}
     for block in ("packages", "snapshots"):
@@ -209,6 +243,8 @@ def workspace_members(text: str) -> list[str]:
 # Fetching one from a repository
 # --------------------------------------------------------------------------- #
 RAW = "https://raw.githubusercontent.com"
+#: What GitHub allows in an owner or repository name.
+_NAME = re.compile(r"[A-Za-z0-9._-]+")
 DEFAULT_REFS = ("main", "master")
 
 
@@ -222,10 +258,16 @@ def parse_repo(value: str) -> tuple[str, str, str | None]:
     """
     text = (value or "").strip().rstrip("/")
     ref: str | None = None
+    # `git@github.com:owner/repo` is what the clone box offers on the SSH tab,
+    # and it is a form people paste.
+    if text.startswith("git@github.com:"):
+        text = text[len("git@github.com:"):]
     for prefix in ("https://github.com/", "http://github.com/", "github.com/"):
         if text.startswith(prefix):
             text = text[len(prefix):]
             break
+    if text.endswith(".git"):
+        text = text[:-4]
     if "/tree/" in text:
         text, ref = text.split("/tree/", 1)
     elif text.count("@") == 1 and not text.startswith("@"):
@@ -234,6 +276,14 @@ def parse_repo(value: str) -> tuple[str, str, str | None]:
     if len(parts) < 2:
         raise ValueError(f"cannot read an owner/repo out of {value!r}")
     owner, repo = parts[0], parts[1]
+    # Without this, `https://example.com/` parses as owner `https:` and repo
+    # `example.com`, fetches a nonsense raw URL, and reports "no lockfile found"
+    # — a fact about the world, for what is actually a typo.
+    if not (_NAME.fullmatch(owner) and _NAME.fullmatch(repo)):
+        raise ValueError(
+            f"{value!r} does not name a GitHub repository "
+            f"(read owner={owner!r}, repo={repo!r})"
+        )
     return owner, repo, ref
 
 

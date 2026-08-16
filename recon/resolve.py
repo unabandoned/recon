@@ -117,16 +117,53 @@ def _lookup(entries: dict, from_key: str, dep: str) -> str | None:
 
 
 def spec_name(spec: str) -> str:
-    """The package name in an npm spec: `browserify@17.0.0` -> `browserify`.
+    """The package name in an npm spec, when the spec contains one.
 
-    Scoped names carry a leading `@`, so the version separator is the *last* one
-    and only counts past position zero. Getting this wrong is quiet rather than
-    loud: `parse_lockfile` fails to find its root, falls back to the probe
-    package, and the target itself becomes an ordinary node that dominates the
-    entire tree — a dominator analysis that is wrong without erroring.
+    `browserify@17.0.0` -> `browserify`. Scoped names carry a leading `@`, so
+    the version separator is the *last* one and only counts past position zero.
+
+    This is a **hint, not an answer**. Whole classes of npm spec do not carry
+    the package name at all — `github:owner/repo`, `owner/repo`, `file:../x`, a
+    tarball URL — and for those the name is whatever the fetched manifest says
+    it is. `_root_key` treats this as a first guess and derives the truth from
+    the lockfile when the guess misses.
     """
     at = spec.rfind("@")
     return spec[:at] if at > 0 else spec
+
+
+def _root_key(entries: dict, root_spec: str) -> str:
+    """Which lockfile entry is the thing we asked npm to install.
+
+    Guessing wrong here is silent, and the original version guessed. It took the
+    name out of the spec string and, when that entry was missing, fell back to
+    the probe manifest — so `resolve_tree("github:browserify/factor-bundle")`
+    rooted the analysis at the probe, made the audited package an ordinary node
+    dominating its own subtree, and shadowed every real intervention behind it.
+    The resulting adoption plan had exactly one entry, "fork the thing you are
+    adopting", it cleared 100% of the rot, and it passed every downstream check
+    including the conservation invariant. Nothing errored.
+
+    The lockfile already knows the answer. The probe manifest declares exactly
+    one dependency — the spec we passed it — so whatever that resolves to is the
+    root, whichever form the spec took. If it cannot be identified, that is a
+    failed read: a tree with the wrong root is worse than no tree.
+    """
+    named = "node_modules/" + spec_name(root_spec)
+    if named in entries:
+        return named
+
+    probe = (entries.get("") or {}).get("dependencies") or {}
+    if len(probe) == 1:
+        resolved = _lookup(entries, "", next(iter(probe)))
+        if resolved:
+            return resolved
+
+    raise ValueError(
+        f"could not identify the root of {root_spec!r} in the lockfile: no "
+        f"{named!r} entry, and the probe manifest declares {len(probe)} "
+        "dependency(ies) rather than exactly one"
+    )
 
 
 def parse_lockfile(lock: dict, root_spec: str, *, dev: bool = False) -> Tree:
@@ -136,19 +173,17 @@ def parse_lockfile(lock: dict, root_spec: str, *, dev: bool = False) -> Tree:
     lockfiles, including the alias shapes that caused the original bug.
     """
     entries = lock.get("packages") or {}
-    root_package = spec_name(root_spec)
-    root_key = "node_modules/" + root_package
-    if root_key not in entries:
-        # The probe manifest is the only other thing that can be a root. Falling
-        # back silently would misattribute the whole tree, so this is the one
-        # place the root is allowed to be the empty key — and only when the
-        # named package genuinely is not in the lockfile.
-        root_key = "" if "" in entries else root_key
+    root_key = _root_key(entries, root_spec)
     direct = set((entries.get(root_key) or {}).get("dependencies") or {})
 
     def real_name(key: str) -> str:
         meta = entries.get(key) or {}
         return meta.get("name") or key.split("node_modules/")[-1]
+
+    # The root's real name comes from the lockfile too, not from the spec. For
+    # `github:owner/repo` the spec does not carry a package name at all, and for
+    # an alias it carries the wrong one.
+    root_package = real_name(root_key)
 
     def included(key: str) -> bool:
         meta = entries.get(key) or {}
@@ -273,7 +308,8 @@ def resolve_tree(package: str, *, dev: bool = False, timeout: int = NPM_TIMEOUT)
             lock = json.load(fh)
 
         return Fact.ok(parse_lockfile(lock, package, dev=dev), source=source)
-    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError,
+            ValueError) as exc:
         return Fact.failed(f"{type(exc).__name__}: {exc}"[:200], source=source)
     finally:
         shutil.rmtree(work, ignore_errors=True)

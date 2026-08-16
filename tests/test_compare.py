@@ -138,6 +138,75 @@ class ReadPnpm(unittest.TestCase):
         self.assertEqual(L.workspace_members(PNPM_WORKSPACE), ["packages/web"])
 
 
+class ParseRepo(unittest.TestCase):
+    """The forms a human actually pastes."""
+
+    def test_the_shapes_github_offers_for_copying(self):
+        for value in ("https://github.com/owner/repo",
+                      "https://github.com/owner/repo/",
+                      "https://github.com/owner/repo.git",
+                      "git@github.com:owner/repo.git",
+                      "github.com/owner/repo",
+                      "owner/repo"):
+            self.assertEqual(L.parse_repo(value), ("owner", "repo", None), value)
+
+    def test_a_ref_can_be_given_either_way(self):
+        self.assertEqual(L.parse_repo("owner/repo@dev"), ("owner", "repo", "dev"))
+        self.assertEqual(L.parse_repo("https://github.com/o/r/tree/feature/x"),
+                         ("o", "r", "feature/x"))
+
+    def test_something_that_is_not_a_repo_is_refused(self):
+        for value in ("", "not a repo", "https://example.com/"):
+            with self.assertRaises(ValueError, msg=value):
+                L.parse_repo(value)
+
+
+class Aliases(unittest.TestCase):
+    """`"buffer": "npm:@unabandoned/buffer@^6"` — the key and the package differ.
+
+    That indirection is the adoption mechanism this org uses, so a diff that
+    reads only manifest keys is blind to the one change it most needs to report.
+    """
+
+    def test_npm_records_the_real_package_in_name(self):
+        lf = L.read(NPM_LOCK, "package-lock.json").payload
+        self.assertEqual(lf.direct["buffer"].package, "@unabandoned/buffer")
+        self.assertTrue(lf.direct["buffer"].aliased)
+        self.assertFalse(lf.direct["left-pad"].aliased)
+
+    def test_pnpm_records_it_in_the_npm_specifier(self):
+        lf = L.read("""
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      buffer:
+        specifier: npm:@unabandoned/buffer@^6
+        version: '@unabandoned/buffer@6.0.4'
+""", "pnpm-lock.yaml").payload
+        self.assertEqual(lf.direct["buffer"].package, "@unabandoned/buffer")
+
+    def test_a_plain_specifier_is_not_an_alias(self):
+        self.assertEqual(L._alias_target("^1.0.0"), "")
+        self.assertEqual(L._alias_target(""), "")
+
+    def test_swapping_a_package_under_an_unchanged_key_is_a_replacement(self):
+        def lf(deps):
+            return L.Lockfile(L.NPM, "3",
+                              {n: L.Dep(n, s, v, False, r) for n, s, v, r in deps}, {})
+        d = C.compare(
+            lf([("buffer", "^5.0.0", "5.7.1", "")]),
+            lf([("buffer", "npm:@unabandoned/buffer@^6", "6.0.4", "@unabandoned/buffer")]),
+        )
+        self.assertEqual(d["totals"]["replaced"], 1)
+        r = d["direct"]["replaced"][0]
+        self.assertTrue(r["via_alias"])
+        self.assertEqual(r["now"], "@unabandoned/buffer")
+        # And it is not double-reported as a version bump: 5.7.1 -> 6.0.4 would
+        # be comparing two different packages' versions and calling it a major.
+        self.assertEqual(d["totals"]["bumped"], 0)
+
+
 class Refusals(unittest.TestCase):
     """An unreadable format is refused, never quietly resolved with npm instead."""
 

@@ -718,7 +718,10 @@ def compare(report: dict, *, home: str = "../../index.html") -> str:
     )
 
     replaced_rows = [
-        f'<tr><td><b>{e(r["package"])}</b></td>'
+        f'<tr><td><b>{e(r["package"])}</b>'
+        # An alias swap keeps the manifest key, so say which mechanism was used
+        # — the reader cannot tell from the names alone.
+        + ('<span class="dim"> via alias</span>' if r.get("via_alias") else "") + "</td>"
         f'<td class="mono">{e(r["was"])} <span class="dim">{e(r["was_version"])}</span></td>'
         f'<td class="mono">{e(r["now"])} <span class="dim">{e(r["now_version"])}</span></td>'
         f'<td>{e(r["into_scope"] or "—")}</td></tr>'

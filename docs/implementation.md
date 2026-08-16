@@ -131,6 +131,37 @@ exist. The join now casefolds and carries its match evidence (`exact` /
 `case-insensitive`) into every covered row, because a reader who cannot see how
 a match was made cannot catch it being wrong.
 
+**The same re-rooting bug came back, because the fix was narrower than the
+bug.** `spec_name` was added after `resolve_tree("browserify@17.0.0")` silently
+rooted the analysis at the probe manifest. It strips `@version` — and whole
+classes of npm spec carry no package name at all: `github:owner/repo`,
+`owner/repo`, `file:../x`, a tarball URL. For those the guess missed, the
+silent fallback fired again, and the audited repository became an ordinary node
+dominating its own subtree.
+
+The adoption plan `intake` produced for `github:browserify/factor-bundle` had
+exactly one entry — **"fork factor-bundle"** — which cleared 100% of the rot and
+passed all three integrity checks, `intake.plan-clears-rot` included. That is
+worth sitting with: a conservation invariant is satisfied by the degenerate
+answer. "Everything is accounted for" is not the same claim as "the accounting
+is about the right thing".
+
+The root is now derived from the lockfile rather than guessed from the spec —
+the probe manifest declares exactly one dependency, so whatever that resolves to
+*is* the root, whichever form the spec took — and an unidentifiable root is a
+failed read rather than a fallback, because a tree with the wrong root is worse
+than no tree. `spec_name` is documented as a hint. `tests/smoke.py` now asserts
+the root for a spec form that does not name its own package, which is the check
+that would have caught this the first time.
+
+**An alias swap was invisible to the comparison.** `"buffer": "^5"` becoming
+`"buffer": "npm:@unabandoned/buffer@^6"` leaves the manifest key untouched, so a
+diff that reads keys sees nothing at all — while that indirection is precisely
+the adoption mechanism this org uses. Both readers now record the real package
+behind the key, from npm's `name` field and pnpm's `npm:` specifier, and the
+swap is reported as a replacement rather than being silently dropped or
+double-counted as a 5.7.1 → 6.0.4 "major bump" between two different packages.
+
 **One check was removed rather than fixed.** `m4.zero-dep-sanity` warned when a
 package's resolved version declared no dependencies while `latest` declared some.
 On the first real build it fired on `buffer-xor@1.0.3` — no dependencies, against
