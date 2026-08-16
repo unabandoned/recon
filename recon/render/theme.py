@@ -146,7 +146,7 @@ table.t tr.emergency td { background: var(--bad-bg); }
 .trail span { color: var(--fg-muted); }
 .trail .root { color: var(--accent); font-weight: 600; }
 .trail .leaf { color: var(--fg); font-weight: 650; }
-.trail i { color: var(--border); font-style: normal; padding: 0 1px; }
+.trail i { color: var(--fg-muted); opacity: .6; font-style: normal; padding: 0 2px; }
 .routes { display: flex; flex-direction: column; gap: 4px; }
 
 /* ---- integrity banner ---- */
@@ -195,4 +195,72 @@ table.t tr.emergency td { background: var(--bad-bg); }
 
 
 def stylesheet(extra: str = "") -> str:
-    return PALETTE + BASE + extra
+    # MOBILE last: its media query must win over the base rules it narrows.
+    return PALETTE + BASE + extra + MOBILE
+
+
+# --------------------------------------------------------------------------- #
+# Small screens
+# --------------------------------------------------------------------------- #
+# A phone is not a narrow desktop. A six-column table that scrolls sideways is a
+# desktop table you have to drag, and on the Forks page that meant seeing "FORK"
+# and half of "GRADE" — every other fact hidden behind a gesture nobody makes.
+# Below this width the tables stop being tables: each row becomes a card of
+# label/value pairs, using the `data-label` each cell carries.
+MOBILE = """
+@media (max-width: 720px) {
+  .wrap { padding: 18px 14px 48px; }
+  .masthead h1 { font-size: 19px; }
+  .lede { font-size: 14px; margin-bottom: 14px; }
+
+  /* One scrolling strip instead of three stacked rows of tabs. */
+  nav.tabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; gap: 2px; }
+  nav.tabs::-webkit-scrollbar { display: none; }
+  nav.tabs a { white-space: nowrap; padding: 8px 11px; }
+
+  .panel { padding: 14px; border-radius: 11px; }
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 9px; }
+  .tile .n { font-size: 23px; }
+
+  .q > summary { padding: 12px 13px; gap: 6px 10px; }
+  .q .why { flex-basis: 100%; }
+  .q .body { padding: 0 13px 13px; }
+  .opts { grid-template-columns: 1fr; }
+  .grid2 { grid-template-columns: 1fr; }
+  .banner { padding: 12px 13px; }
+}
+
+@media (max-width: 900px) {
+  /* Tables become cards. */
+  .scroll { border: none; border-radius: 0; overflow-x: visible; }
+  table.t, table.t.fixed { display: block; min-width: 0; width: 100%; }
+  table.t colgroup, table.t thead { display: none; }
+  table.t tbody { display: block; }
+  table.t tbody tr { display: block; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; margin: 0 0 9px; }
+  table.t tbody tr:nth-child(even) { background: var(--panel); }
+  table.t tbody tr:hover { background: var(--panel); }
+  table.t tbody tr.emergency { border-color: var(--bad); }
+  table.t td { display: flex; gap: 12px; align-items: baseline; width: auto !important;
+    justify-content: space-between; text-align: left; white-space: normal;
+    border-bottom: 1px solid var(--border-muted); padding: 8px 12px; }
+  table.t tr td:last-child { border-bottom: none; }
+  table.t td:empty { display: none; }
+  table.t td::before { content: attr(data-label); color: var(--fg-muted);
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    flex: 0 0 33%; font-weight: 600; }
+  table.t td:not([data-label])::before { content: none; }
+  /* The first cell is the card's title, so it gets the whole line. */
+  table.t td:first-child { display: block; font-size: 14.5px; padding-top: 11px; }
+  table.t td:first-child::before { content: none; }
+  table.t tr.group-head td { display: block; padding: 9px 12px; }
+  table.t tr.group-head td::before { content: none; }
+  table.t tr.group-start td { border-top: none; padding-top: 8px; }
+
+  /* A node-link diagram is the wrong form here: swap in the edge list. The
+     graph is 1,088px wide, so anything narrower opens on empty canvas. */
+  .topo-scroll, .topo-hint, .topo-legend { display: none; }
+  .topo-narrow { display: block; }
+}
+"""

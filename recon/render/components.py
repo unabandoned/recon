@@ -13,6 +13,7 @@ every aggregate can show its denominator without any extra plumbing.
 from __future__ import annotations
 
 import html
+import re
 from typing import Any, Iterable
 
 __all__ = [
@@ -118,6 +119,7 @@ def table(headers: list[str], rows: list[str], *, empty: str = "Nothing to show.
     """
     if not rows:
         return f'<p class="empty">{e(empty)}</p>'
+    rows = [_label_cells(r, headers) for r in rows]
     head = "".join(f"<th>{h}</th>" for h in headers)
     if columns and columns > len(headers):
         head += "<th></th>" * (columns - len(headers))
@@ -128,6 +130,31 @@ def table(headers: list[str], rows: list[str], *, empty: str = "Nothing to show.
         cls = "t fixed"
     return (f'<div class="scroll"><table class="{cls}">{cols}<thead><tr>' + head
             + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>")
+
+
+_TD = re.compile(r"<td(?=[ >])")
+
+
+def _label_cells(row_html: str, headers: list[str]) -> str:
+    """Stamp each cell with its column heading.
+
+    On a phone the table stops being a table: `thead` is hidden and every row
+    becomes a card of label/value pairs, which needs each cell to carry its own
+    label. Doing it here rather than at eleven call sites keeps the page code
+    writing plain rows, and a cell that spans the row (a group band) is left
+    alone because it has no single column to name.
+    """
+    if "colspan" in row_html:
+        return row_html
+    index = 0
+
+    def stamp(_match: "re.Match[str]") -> str:
+        nonlocal index
+        label = headers[index] if index < len(headers) else ""
+        index += 1
+        return f'<td data-label="{e(label)}"' if label else "<td"
+
+    return _TD.sub(stamp, row_html)
 
 
 def banner(integrity: dict) -> str:

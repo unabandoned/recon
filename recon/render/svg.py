@@ -48,6 +48,17 @@ CSS = """
 .topo { display: block; margin: 0 auto;
   font: 600 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
 .topo-hint { font-size: 12px; color: var(--fg-muted); margin: 8px 0 0; }
+.topo-narrow { display: none; }
+.topo-list { list-style: none; margin: 0; padding: 0; }
+.topo-list li { padding: 10px 0; border-bottom: 1px solid var(--border-muted); }
+.topo-list li:last-child { border-bottom: none; }
+.topo-list .from { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 650; font-size: 13.5px; display: flex; gap: 8px; align-items: baseline;
+  flex-wrap: wrap; }
+.topo-list .to { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.topo-list .to span { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; color: var(--fg-muted); background: var(--panel-2);
+  border: 1px solid var(--border-muted); border-radius: 5px; padding: 2px 7px; }
 .topo .edge { fill: none; stroke: var(--border); stroke-width: 1.6; opacity: .85; }
 .topo .edge.partial { stroke: var(--warn); stroke-dasharray: 5 3; }
 .topo .node text { fill: var(--fg); }
@@ -220,11 +231,50 @@ def render(nodes: dict, edges: list[dict]) -> str:
     )
 
 
-def panel(svg: str) -> str:
-    """Wrap the graph so it scrolls instead of shrinking below legibility."""
+def edge_list(nodes: dict, edges: list[dict]) -> str:
+    """The same graph as text, for screens a node-link diagram does not suit.
+
+    On a phone the right form for this data is not a diagram. The canvas is
+    ~1,100px wide with its root centred, so a 390px viewport opens on empty
+    space, and scaling it to fit would put the labels back below legibility.
+    Both are emitted and CSS picks one, so neither costs a request or any JS.
+    """
+    out: dict[str, list[str]] = {}
+    for edge in edges:
+        src, dst = edge["from"], edge["to"]
+        if src not in nodes or dst not in nodes:
+            continue
+        out.setdefault(src, []).append(dst)
+    if not out:
+        return '<p class="empty">No fork depends on another fork.</p>'
+
+    def label(node_id: str) -> str:
+        return html.escape(nodes[node_id].get("label", node_id))
+
+    rows = []
+    for src in sorted(out, key=label):
+        meta = nodes[src]
+        grade = meta.get("grade", "")
+        chip = (f'<span class="chip c-{html.escape(grade)}">{html.escape(grade)}</span>'
+                if grade and grade != "unknown" else "")
+        targets = " ".join(
+            f'<span>{label(d)}</span>' for d in sorted(set(out[src]), key=label)
+        )
+        rows.append(
+            f'<li><div class="from">{label(src)}{chip}</div>'
+            f'<div class="to">{targets}</div></li>'
+        )
+    return '<ul class="topo-list">' + "".join(rows) + "</ul>"
+
+
+def panel(svg: str, nodes: dict | None = None, edges: list[dict] | None = None) -> str:
+    """The diagram for wide screens, the same edges as a list for narrow ones."""
     if not svg:
         return '<p class="empty">No graph to draw.</p>'
-    return (f'<div class="topo-scroll">{svg}</div>{LEGEND}'
+    listing = edge_list(nodes or {}, edges or [])
+    return (f'<div class="topo-scroll">{svg}</div>'
+            f'<div class="topo-narrow">{listing}</div>'
+            f'{LEGEND}'
             '<p class="topo-hint">Scroll sideways to follow the widest layer — the '
             'graph is drawn at full size rather than scaled down to fit.</p>')
 

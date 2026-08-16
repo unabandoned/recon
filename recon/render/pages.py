@@ -117,7 +117,7 @@ def overview(obs: dict, trend: dict) -> str:
             + '<h2 class="section">Topology</h2>'
             '<p class="lede">Consumers on top, forks beneath, coloured by what is in '
             'their trees. <a href="topology.html">Full view →</a></p>'
-            f'<div class="panel">{svg.panel(svg.render(nodes, edges))}</div>'
+            f'<div class="panel">{svg.panel(svg.render(nodes, edges), nodes, edges)}</div>'
         ),
     )
 
@@ -326,7 +326,7 @@ def topology(obs: dict) -> str:
             "— and the build fails if the two disagree."
         ),
         integrity=obs["integrity"], css=CSS, meta=obs["meta"],
-        body=note + f'<div class="panel">{svg.panel(svg.render(nodes, edges))}</div>',
+        body=note + f'<div class="panel">{svg.panel(svg.render(nodes, edges), nodes, edges)}</div>',
     )
 
 
