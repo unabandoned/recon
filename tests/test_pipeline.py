@@ -451,9 +451,50 @@ class Rendering(unittest.TestCase):
         self.assertIn("topo-list", self.html["topology.html"])
 
     def test_no_page_escapes_its_own_markup(self):
-        """A crude but effective guard against unescaped interpolation."""
+        """A crude but effective guard against unescaped interpolation.
+
+        One page now carries script deliberately: the intake comparison runs in
+        the browser, because everything it reads is public and CORS-open, and no
+        static page can do that without script. The guard is narrowed rather
+        than dropped — the invariant it was protecting is "observation data
+        cannot become markup", and that still holds everywhere.
+        """
         for name, doc in self.html.items():
+            if name == "intake.html":
+                continue
             self.assertNotIn("<script", doc.lower(), name)
+
+    def test_the_only_scripts_are_local_constants(self):
+        """What replaces the blanket ban, stated precisely.
+
+        Two script blocks, both fixed program text — the comparison module and
+        the page's glue. Neither is built by interpolating anything from the
+        observation, so the original guard's actual concern is unchanged. And
+        nothing is ever loaded from another host: the site has no CDN and no
+        libraries, which was the point of being script-free in the first place.
+        """
+        doc = self.html["intake.html"]
+        self.assertEqual(doc.count("<script"), 2)
+        for page_doc in self.html.values():
+            self.assertNotIn("<script src", page_doc.lower())
+            self.assertNotIn("cdn.", page_doc.lower())
+
+    def test_the_browser_comparison_escapes_everything_it_renders(self):
+        """It renders package names fetched from arbitrary repositories.
+
+        Anyone can point the tool at a repository they control, so every value
+        that reaches `innerHTML` is attacker-supplied. Each one goes through
+        `esc`; this asserts the escaper exists and that no bare interpolation of
+        a package field slipped in beside it.
+        """
+        from recon.render import pages
+        js = pages._COMPARE_UI
+        self.assertIn("function (s)", js)
+        self.assertIn("&amp;", js)
+        for field in ("r.package", "r.was", "r.now", "r.specifier", "r.from",
+                      "r.to", "err.message"):
+            self.assertNotIn("+ " + field + " +", js, f"{field} is interpolated unescaped")
+            self.assertIn("esc(" + field + ")", js)
 
 
 class FixtureFile(unittest.TestCase):

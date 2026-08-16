@@ -8,6 +8,8 @@ own limits the easiest thing on the site to find.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from . import svg
 from .components import (PAGES, banner, chip, e, page, sparkline, stat, table,
                          trail, value)
@@ -827,6 +829,182 @@ def _sides_panel(report: dict) -> str:
     )
 
 
+def _compare_box(repo: str) -> str:
+    """Paste two repos, get the declared-dependency diff, in the page.
+
+    Everything it needs is public and CORS-open, so there is no trigger, no
+    token and no round trip — which is the whole reason it can exist on a static
+    site. It reads `package.json`, not the lockfile: manifests are JSON in every
+    ecosystem, so this needs no parser and no vendored dependency, and it works
+    for repositories that commit no lockfile. The limit is stated on the page
+    rather than left for the reader to discover.
+    """
+    script = (Path(__file__).parent / "compare.js").read_text(encoding="utf-8")
+    return (
+        '<div class="panel"><h3>Compare two repositories</h3>'
+        '<p class="note">Paste any two GitHub repositories — a fork and what it '
+        "forked, or two candidates for the same job. Reads each one&rsquo;s "
+        "<code>package.json</code> directly from GitHub, in your browser. Nothing "
+        "is sent anywhere, nothing is stored, and no sign-in is needed.</p>"
+        '<form id="cmp" class="cmp">'
+        '<label>Baseline<input name="baseline" type="text" inputmode="url" '
+        'spellcheck="false" autocomplete="off" '
+        'placeholder="https://github.com/CorentinTh/it-tools" required></label>'
+        '<label>Subject<input name="subject" type="text" inputmode="url" '
+        'spellcheck="false" autocomplete="off" '
+        'placeholder="https://github.com/TheTechNetwork/it-tools" required></label>'
+        '<button type="submit">Compare</button>'
+        "</form>"
+        '<div id="cmp-out" class="cmp-out" aria-live="polite"></div>'
+        '<p class="note">This compares what each project <b>declares</b>: adds, '
+        "drops, replacements, and pinning. It does <b>not</b> report resolved "
+        "versions, the transitive tree, or health — those need the lockfile and "
+        "a publish date per package. For that, run "
+        f"<code>python -m recon.cli compare A B</code> from "
+        f'<a href="https://github.com/{e(repo)}">{e(repo)}</a>.</p>'
+        "</div>"
+        f"<script>{script}</script><script>{_COMPARE_UI}</script>"
+    )
+
+
+#: The page's own glue: fetch, render, and keep the URL shareable. The
+#: comparison itself lives in `compare.js`, which is cross-checked against the
+#: Python implementation on every CI run.
+_COMPARE_UI = r"""
+(function () {
+  var form = document.getElementById('cmp');
+  var out = document.getElementById('cmp-out');
+  if (!form || !out || !window.reconCompare) return;
+  var R = window.reconCompare;
+  var esc = function (s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  };
+
+  function note(cls, html) { out.innerHTML = '<p class="' + cls + '">' + html + '</p>'; }
+
+  async function manifest(ref) {
+    var r = R.parseRepo(ref);
+    var refs = r.ref ? [r.ref] : ['main', 'master'];
+    var tried = [];
+    for (var i = 0; i < refs.length; i++) {
+      var url = 'https://raw.githubusercontent.com/' + r.owner + '/' + r.repo +
+                '/' + refs[i] + '/package.json';
+      tried.push(refs[i]);
+      var resp = await fetch(url);
+      if (resp.ok) return { doc: await resp.json(), source: r.owner + '/' + r.repo + '@' + refs[i] };
+      if (resp.status !== 404) throw new Error(r.owner + '/' + r.repo + ': HTTP ' + resp.status);
+    }
+    throw new Error('no package.json in ' + r.owner + '/' + r.repo +
+                    ' on ' + tried.join(' or ') + ' — add @branch to name another');
+  }
+
+  function rows(list, cells) {
+    return list.map(function (x) { return '<tr>' + cells(x) + '</tr>'; }).join('');
+  }
+
+  function table(headers, body, empty) {
+    if (!body) return '<p class="empty">' + empty + '</p>';
+    return '<div class="scroll"><table class="t"><thead><tr>' +
+      headers.map(function (h) { return '<th>' + h + '</th>'; }).join('') +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+
+  function fold(title, count, body) {
+    return '<div class="panel"><details class="fold"><summary>' + esc(title) +
+      ' <span class="n">' + count + '</span></summary>' + body + '</details></div>';
+  }
+
+  function render(diff, a, b) {
+    var t = diff.totals;
+    var tiles = [
+      [t.added, 'added', 'direct dependencies the subject gained', ''],
+      [t.removed, 'dropped', 'direct dependencies it no longer has', ''],
+      [t.replaced, 'replaced', 'swapped for a scoped republish', 'key'],
+      [t.pinning, 'pinning changes',
+       diff.subject.pinned + ' of ' + diff.subject.direct + ' pinned vs ' +
+       diff.baseline.pinned + ' of ' + diff.baseline.direct, '']
+    ].map(function (x) {
+      return '<div class="tile ' + x[3] + '"><div class="n">' + x[0] + '</div>' +
+             '<div class="l">' + esc(x[1]) + '</div><div class="d">' + esc(x[2]) + '</div></div>';
+    }).join('');
+
+    out.innerHTML =
+      '<div class="tiles">' + tiles + '</div>' +
+      '<p class="lede">' + esc(R.headline(diff)) + '</p>' +
+      '<p class="note">Read <code>' + esc(a.source) + '</code> and <code>' +
+      esc(b.source) + '</code>.</p>' +
+      fold('Replaced with a scoped republish', t.replaced,
+        table(['Package', 'Was', 'Now', 'Into scope'],
+          rows(diff.direct.replaced, function (r) {
+            return '<td data-label="Package"><b>' + esc(r.package) + '</b>' +
+              (r.via_alias ? '<span class="dim"> via alias</span>' : '') + '</td>' +
+              '<td data-label="Was" class="mono">' + esc(r.was) + '</td>' +
+              '<td data-label="Now" class="mono">' + esc(r.now) + '</td>' +
+              '<td data-label="Into scope">' + esc(r.into_scope || '—') + '</td>';
+          }), 'No package was swapped for a scoped republish.')) +
+      fold('Pinning', t.pinning,
+        table(['Package', 'Direction', 'Specifier'],
+          rows(diff.direct.pinning, function (r) {
+            return '<td data-label="Package"><b>' + esc(r.package) + '</b></td>' +
+              '<td data-label="Direction"><span class="chip c-' +
+              (r.direction === 'pinned' ? 'time_bomb' : 'alive') + '">' +
+              esc(r.direction) + '</span></td>' +
+              '<td data-label="Specifier" class="mono">' + esc(r.from) + ' → ' + esc(r.to) + '</td>';
+          }), 'No specifier changed between pinned and ranged.')) +
+      fold('Added', t.added,
+        table(['Package', 'Specifier', 'Tree'],
+          rows(diff.direct.added, function (r) {
+            return '<td data-label="Package"><b>' + esc(r.package) + '</b></td>' +
+              '<td data-label="Specifier" class="mono">' + esc(r.specifier) + '</td>' +
+              '<td data-label="Tree">' + (r.dev ? 'dev' : 'runtime') + '</td>';
+          }), 'Nothing added.')) +
+      fold('Dropped', t.removed,
+        table(['Package', 'Specifier', 'Tree'],
+          rows(diff.direct.removed, function (r) {
+            return '<td data-label="Package"><b>' + esc(r.package) + '</b></td>' +
+              '<td data-label="Specifier" class="mono">' + esc(r.specifier) + '</td>' +
+              '<td data-label="Tree">' + (r.dev ? 'dev' : 'runtime') + '</td>';
+          }), 'Nothing dropped.'));
+  }
+
+  async function run(baseline, subject) {
+    note('note', 'Reading both manifests…');
+    try {
+      var pair = await Promise.all([manifest(baseline), manifest(subject)]);
+      render(R.compare(R.readManifest(pair[0].doc), R.readManifest(pair[1].doc)),
+             pair[0], pair[1]);
+    } catch (err) {
+      // A failure is reported as one. An empty diff would read as "these
+      // repositories are identical", which is the worst thing this can say.
+      note('empty', '<b>No comparison.</b> ' + esc(err.message));
+    }
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var a = form.baseline.value.trim(), b = form.subject.value.trim();
+    if (!a || !b) return;
+    location.hash = 'compare=' + encodeURIComponent(a) + '...' + encodeURIComponent(b);
+    run(a, b);
+  });
+
+  // A comparison is fully described by its two inputs, so the URL is the whole
+  // state: shareable and reproducible without storing anything.
+  function fromHash() {
+    var m = /^#compare=([^.]*)\.\.\.(.*)$/.exec(location.hash || '');
+    if (!m) return;
+    form.baseline.value = decodeURIComponent(m[1]);
+    form.subject.value = decodeURIComponent(m[2]);
+    run(form.baseline.value, form.subject.value);
+  }
+  window.addEventListener('hashchange', fromHash);
+  fromHash();
+})();
+"""
+
+
 def intake_index(obs: dict, reports: list[dict], *, repo: str = "unabandoned/recon") -> str:
     """The dashboard's intake tab: what has been audited, and how to audit more."""
     rows = []
@@ -860,18 +1038,21 @@ def intake_index(obs: dict, reports: list[dict], *, repo: str = "unabandoned/rec
         ),
         integrity=obs["integrity"], css=CSS, meta=obs["meta"],
         body=(
-            '<div class="panel"><h3>Run an audit</h3>'
+            _compare_box(repo)
+            + '<div class="panel"><h3>Run an audit</h3>'
             f'<p class="note">Dispatch the <a href="{e(dispatch)}"><code>intake</code> '
             "workflow</a> with an npm spec — <code>factor-bundle@2.0.0</code>, or a bare "
             "name for whatever <code>latest</code> resolves to. It runs the same "
             "resolver, classifier and advisory join as the nightly build with only the "
             "root changed, then commits the report and links it here.</p>"
-            '<p class="note">There is no in-page instant estimate. A second, '
-            "browser-side resolver was built and measured against this one: on "
+            '<p class="note">The comparison above runs in the page because it only '
+            "<i>reads</i> what two projects already committed. An audit cannot: it has "
+            "to <i>resolve</i> a tree and then date every package in it. A browser-side "
+            "resolver was built and measured against this one — on "
             "<code>factor-bundle@2.0.0</code> it reported 48 packages and 17 time bombs "
             "where npm&rsquo;s own resolver finds 39 and 13, because it cannot dedupe "
-            "the way npm does. A number that is 31% wrong about the thing you are "
-            "deciding on is not a faster answer, it is a different one.</p>"
+            "the way npm does. A number 31% wrong about the thing you are deciding on "
+            "is not a faster answer, it is a different one, so the audit stays here.</p>"
             "</div>"
             + '<div class="panel"><h3>Audited trees</h3>'
             '<p class="note">Each report is a timestamped observation of somebody '

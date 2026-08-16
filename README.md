@@ -28,6 +28,7 @@ GITHUB_TOKEN=… python -m recon.cli build    # writes ./public and a snapshot
 python -m recon.cli verify                  # non-zero if a check failed
 python -m recon.cli intake factor-bundle@2.0.0   # audit a tree we do NOT own
 python -m recon.cli compare CorentinTh/it-tools TheTechNetwork/it-tools  # diff two repos
+# or paste both into the Intake tab and get the declared-dependency diff in the page
 ```
 
 ## How it avoids lying
