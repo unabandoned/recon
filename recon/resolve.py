@@ -76,7 +76,14 @@ class Tree:
     root_key: str = ""
     nodes: dict[str, Node] = field(default_factory=dict)
     edges: tuple[tuple[str, str], ...] = ()   # (parent key, child key)
-    scope_edges: tuple[str, ...] = ()         # @unabandoned/* packages present
+    # Two different questions, and conflating them is a bug the M2 check caught
+    # the hard way. `scope_edges` is what this fork DECLARES: siblings in its own
+    # `dependencies`, which is the same question `manifest_scope_edges` asks of
+    # the manifest, and therefore the only set the two readers may be compared on.
+    # `scope_reachable` is every sibling anywhere beneath it, which is a fact
+    # about the whole subtree and is nobody's direct edge.
+    scope_edges: tuple[str, ...] = ()         # siblings this fork declares
+    scope_reachable: tuple[str, ...] = ()     # siblings anywhere in the tree
     dev: bool = False
 
     def by_name(self) -> dict[str, list[Node]]:
@@ -181,7 +188,7 @@ def parse_lockfile(lock: dict, root_spec: str, *, dev: bool = False) -> Tree:
         frontier = nxt
 
     tree = Tree(root=root_package, root_key=root_key, dev=dev)
-    scope: set[str] = set()
+    reachable: set[str] = set()
 
     for key in entries:
         if not key.startswith("node_modules/") or key == root_key:
@@ -194,7 +201,7 @@ def parse_lockfile(lock: dict, root_spec: str, *, dev: bool = False) -> Tree:
         if name == root_package:
             continue
         if name.startswith(SCOPE):
-            scope.add(name)
+            reachable.add(name)
         chain = paths.get(key)
         tree.nodes[key] = Node(
             key=key,
@@ -211,7 +218,21 @@ def parse_lockfile(lock: dict, root_spec: str, *, dev: bool = False) -> Tree:
         )
 
     tree.edges = tuple(sorted(e for e in edges if e[1] in tree.nodes))
-    tree.scope_edges = tuple(sorted(scope))
+
+    # Reader B, and it has to ask the manifest reader's question: which siblings
+    # does the ROOT declare? Resolved through the lockfile, so npm's own alias
+    # handling does the work — that independence is the entire value of the check.
+    declared: set[str] = set()
+    for dep in (entries.get(root_key) or {}).get("dependencies") or {}:
+        child = _lookup(entries, root_key, dep)
+        if child is None or not included(child):
+            continue
+        name = real_name(child)
+        if name.startswith(SCOPE) and name != root_package:
+            declared.add(name)
+
+    tree.scope_edges = tuple(sorted(declared))
+    tree.scope_reachable = tuple(sorted(reachable))
     return tree
 
 

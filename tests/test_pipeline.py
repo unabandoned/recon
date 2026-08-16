@@ -57,7 +57,8 @@ class Discovery(unittest.TestCase):
         self.assertEqual(
             [f["package"] for f in self.core["forks"]],
             ["@unabandoned/browserify", "@unabandoned/buffer",
-             "@unabandoned/crypto-browserify", "@unabandoned/ieee754"],
+             "@unabandoned/crypto-browserify", "@unabandoned/detective",
+             "@unabandoned/ieee754"],
         )
 
     def test_a_repo_without_metadata_is_excluded_with_a_reason_not_dropped(self):
@@ -117,6 +118,32 @@ class Classification(unittest.TestCase):
 class Edges(unittest.TestCase):
     def setUp(self):
         self.w, self.inputs, self.core = build()
+
+    def test_a_sibling_reached_through_an_intermediary_is_not_a_declared_edge(self):
+        """The false alarm the first real build produced.
+
+        browserify reaches @unabandoned/detective only through the third-party
+        `module-deps`. That is module-deps' edge, not browserify's — so it must
+        not appear as a fork->fork edge, and M2 must not expect the manifest
+        reader to have found it. Reader B used to collect every sibling anywhere
+        in the subtree, which guaranteed a disagreement for any fork wired this
+        way, and duly failed the build on 4 real forks.
+        """
+        edges = {(e["from"], e["to"]) for e in self.core["edges"]}
+        self.assertNotIn(
+            ("@unabandoned/browserify", "@unabandoned/detective"), edges
+        )
+        # But the fact itself is not thrown away.
+        browserify = next(f for f in self.core["forks"]
+                          if f["package"] == "@unabandoned/browserify")
+        self.assertIn("@unabandoned/detective", browserify["tree"]["scope_reachable"])
+
+    def test_the_two_readers_are_asked_the_same_question(self):
+        """Reader B must be declared-only, matching what the manifest reader sees."""
+        tree = self.w.resolver("@unabandoned/browserify").value
+        self.assertEqual(list(tree.scope_edges), ["@unabandoned/crypto-browserify"])
+        self.assertIn("@unabandoned/detective", tree.scope_reachable)
+        self.assertNotEqual(set(tree.scope_edges), set(tree.scope_reachable))
 
     def test_alias_wired_edges_are_derived_by_both_readers(self):
         """The regression that made every fork->fork edge invisible."""
@@ -329,7 +356,7 @@ class Rendering(unittest.TestCase):
         self.assertIn("no-metadata", self.html["health.html"])
 
     def test_aggregates_carry_denominators(self):
-        self.assertIn("of 6 resolved", self.html["index.html"])
+        self.assertIn("of 8 resolved", self.html["index.html"])
 
     def test_the_integrity_banner_is_on_every_page(self):
         for name, doc in self.html.items():

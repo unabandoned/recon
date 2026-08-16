@@ -140,7 +140,6 @@ def build_core(inp: Inputs) -> dict:
     per_fork_edges: dict[str, dict] = {}
     package_rows: dict[str, dict] = {}
     cross_checks: list[dict] = []
-    soft_zero_dep: list[dict] = []
     routes: dict[tuple[str, str], list[list[str]]] = defaultdict(list)
     unresolved: list[dict] = []
 
@@ -184,18 +183,6 @@ def build_core(inp: Inputs) -> dict:
                 "registry_deps": sorted(reg_deps.payload) if reg_deps.is_ok else None,
                 "lockfile_deps": sorted(node.deps),
             })
-
-            # M4 soft check: resolved version claims zero deps, latest carries some.
-            if not node.deps:
-                latest = inp.registry.latest_version(node.name)
-                if latest.is_ok and latest.payload != node.version:
-                    latest_deps = inp.registry.declared_deps(node.name, latest.payload)
-                    if latest_deps.is_ok and latest_deps.payload:
-                        soft_zero_dep.append({
-                            "ident": node.ident,
-                            "latest": latest.payload,
-                            "latest_deps": len(latest_deps.payload),
-                        })
 
             routes[(fork.package, node.name)].append(list(node.via))
             _accumulate_package(
@@ -290,7 +277,6 @@ def build_core(inp: Inputs) -> dict:
         "_checks": {          # working data for integrity; stripped before writing
             "per_fork": per_fork_edges,
             "cross_checks": sorted(cross_checks, key=lambda c: c["ident"]),
-            "soft_zero_dep": sorted(soft_zero_dep, key=lambda s: s["ident"]),
             "routes": {k: v for k, v in routes.items()},
         },
     }
@@ -440,6 +426,13 @@ def _fork_row(fork: Fork, inp: Inputs, graphs: dict, advisories: dict) -> dict:
         "dependency_dashboard": _f(fork.dependency_dashboard_url),
         "tree": {
             "resolved": tree_fact.is_ok,
+            # Siblings anywhere beneath this fork, not just the ones it declares.
+            # Deliberately NOT what M2 compares — a sibling reached through an
+            # intermediary is that intermediary's edge, not this fork's.
+            "scope_reachable": (
+                sorted(e for e in tree_fact.payload.scope_reachable
+                       if e != fork.package) if tree_fact.is_ok else []
+            ),
             "reason": "" if tree_fact.is_ok else (tree_fact.detail or str(tree_fact.status)),
             "counts": counts,
             "advisories": adv_count,
@@ -519,7 +512,6 @@ def run_checks(
         integrity.fork_edge_floor(totals["edges"], totals["forks"], EDGE_FLOOR),
         integrity.uniformity("open_issues", issue_values),
         integrity.conservation(coverage),
-        integrity.latest_version_sanity(work["soft_zero_dep"]),
         integrity.differential(
             totals,
             (previous or {}).get("totals") if previous else None,

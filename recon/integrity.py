@@ -436,25 +436,19 @@ def conservation(coverage: dict) -> Check:
     )
 
 
-def latest_version_sanity(soft_flags: list[dict]) -> Check:
-    """Soft check: latest has dependencies but the resolved version reports none.
-
-    Warn, never fail — a package genuinely can shed all its dependencies in a
-    later major. But it is the fingerprint of a misread manifest, so it is worth
-    a glance.
-    """
-    if not soft_flags:
-        return Check(
-            "m4.zero-dep-sanity", "M4", PASS, "Zero-dependency readings look plausible",
-            "no package reports zero dependencies while its latest release carries some",
-            {},
-        )
-    return Check(
-        "m4.zero-dep-sanity", "M4", WARN, "Zero-dependency readings look plausible",
-        f"{len(soft_flags)} package(s) resolve to zero dependencies while `latest` "
-        f"declares some — e.g. {soft_flags[0]['ident']}",
-        {"flagged": soft_flags[:20]},
-    )
+# `m4.zero-dep-sanity` was here and has been removed rather than tuned.
+#
+# It flagged a package whose resolved version declares no dependencies while its
+# `latest` declares some. On the first real build that fired on `buffer-xor@1.0.3`,
+# which has no dependencies, against a 2.x `latest` that does — a package gaining
+# dependencies in a later major is ordinary, not suspicious, so the check had no
+# discriminating power and would have warned forever.
+#
+# The concern it was reaching for is real, but `m2.dependency_counts_agree` is the
+# well-formed version of it: that compares the SAME (name, version) across two
+# independent artifacts, which can only disagree if one of our readings is wrong,
+# and it fails hard instead of warning. A check that fires on normal reality
+# teaches people to skim past the panel, which costs more than it can ever catch.
 
 
 # --------------------------------------------------------------------------- #
