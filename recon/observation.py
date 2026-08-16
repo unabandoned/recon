@@ -162,7 +162,6 @@ def build_core(inp: Inputs) -> dict:
         per_fork_edges[fork.package] = {
             "manifest_edges": manifest_edges,
             "lockfile_edges": lockfile_edges,
-            "expects_sibling": fork.expects_sibling,
         }
 
         if not tree_fact.is_ok:
@@ -415,7 +414,6 @@ def _fork_row(fork: Fork, inp: Inputs, graphs: dict, advisories: dict) -> dict:
         "upstream": fork.metadata.get("upstream", {}),
         "used_by": fork.metadata.get("used-by", []) or [],
         "tags": sorted(fork.metadata.get("tags", []) or []),
-        "expects_sibling": fork.expects_sibling,
         "ci": _f(fork.ci),
         "open_prs": _f(fork.open_prs),
         "renovate_prs": _f(fork.renovate_prs),
@@ -508,7 +506,7 @@ def run_checks(
         integrity.unknowns_are_accounted(core["packages"], coverage["fetches"]),
         integrity.scope_edges_agree(work["per_fork"]),
         integrity.dependency_counts_agree(work["cross_checks"]),
-        integrity.expected_siblings_present(work["per_fork"]),
+        integrity.expected_siblings_present(work["per_fork"], fixtures.get("edges")),
         integrity.fork_edge_floor(totals["edges"], totals["forks"], EDGE_FLOOR),
         integrity.uniformity("open_issues", issue_values),
         integrity.conservation(coverage),

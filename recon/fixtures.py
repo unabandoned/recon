@@ -1,15 +1,22 @@
 """Org-level ground truth — hand-written facts the build must reproduce.
 
-Most fixtures belong in the fork they describe (`expects-sibling` in
-`.unabandoned.yml`), because the co-location rule exists so that a fact gets
-updated in the same pull request as the thing it describes. What lands here is
-what has no single home: cross-fork reachability assertions and counted facts
-about the org as a whole.
+Every fixture lives here, in the repository that does the deriving. An earlier
+design put sibling-edge assertions in each fork's own `.unabandoned.yml` on the
+co-location argument: a fact about one fork should be updated in the same pull
+request as the wiring it describes. That argument is sound and the cost is
+fatal — asserting the org's edge set meant twenty-seven pull requests against
+twenty-seven repositories, so nobody opened the first one and the check that
+depended on them verified nothing for its entire life. A fixture file only
+works if adding to it is cheap enough that someone actually does.
 
 This file does not violate "never record derivable state" — it inverts it. It is
 not a cache of what the build found; it is *underivable human knowledge used to
 audit the derivation*. If it ever drifts from reality, the build fails, which is
 the opposite of the failure mode the rule protects against.
+
+    edges:
+      - fork: "@unabandoned/module-deps"
+        declares: ["@unabandoned/detective"]
 
     paths:
       - fork: "@unabandoned/browserify"
@@ -27,7 +34,7 @@ from pathlib import Path
 
 from . import metadata as md
 
-EMPTY: dict = {"paths": [], "counts": []}
+EMPTY: dict = {"edges": [], "paths": [], "counts": []}
 
 
 def load(path: Path) -> tuple[dict, list[str]]:
@@ -43,8 +50,47 @@ def load(path: Path) -> tuple[dict, list[str]]:
         return dict(EMPTY), [f"{path}: top-level document must be a mapping"]
 
     errors: list[str] = []
+    edges = data.get("edges") or []
     paths = data.get("paths") or []
     counts = data.get("counts") or []
+
+    if not isinstance(edges, list):
+        errors.append("`edges` must be a list")
+        edges = []
+    else:
+        clean_edges = []
+        for i, item in enumerate(edges):
+            if not isinstance(item, dict):
+                errors.append(f"`edges[{i}]` must be a mapping")
+                continue
+            fork = item.get("fork")
+            if not isinstance(fork, str) or not fork.strip():
+                errors.append(f"`edges[{i}].fork` is required")
+                continue
+            declares = item.get("declares")
+            if not isinstance(declares, list) or not declares:
+                errors.append(f"`edges[{i}].declares` must be a non-empty list")
+                continue
+            fork = md.normalise_package(fork)
+            named = []
+            for j, name in enumerate(declares):
+                if not isinstance(name, str) or not name.strip():
+                    errors.append(f"`edges[{i}].declares[{j}]` must be a non-empty string")
+                    continue
+                if name.startswith("@") and not name.startswith(md.SCOPE):
+                    errors.append(
+                        f"`edges[{i}].declares[{j}]` must name an {md.SCOPE}* package "
+                        f"(got {name!r}); bare names are scoped automatically"
+                    )
+                    continue
+                scoped = md.normalise_package(name)
+                if scoped == fork:
+                    errors.append(f"`edges[{i}]` must not declare {fork} as its own sibling")
+                    continue
+                named.append(scoped)
+            if named:
+                clean_edges.append({"fork": fork, "declares": sorted(set(named))})
+        edges = clean_edges
 
     if not isinstance(paths, list):
         errors.append("`paths` must be a list")
@@ -77,4 +123,4 @@ def load(path: Path) -> tuple[dict, list[str]]:
             if not isinstance(item.get("equals"), int):
                 errors.append(f"`counts[{i}].equals` is required and must be an integer")
 
-    return {"paths": paths, "counts": counts}, errors
+    return {"edges": edges, "paths": paths, "counts": counts}, errors

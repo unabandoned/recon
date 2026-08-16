@@ -61,10 +61,6 @@ class Fork:
     manifest: Fact
     ci: Fact
 
-    @property
-    def expects_sibling(self) -> list[str]:
-        return md.expected_siblings(self.metadata)
-
 
 @dataclass(slots=True)
 class Discovery:

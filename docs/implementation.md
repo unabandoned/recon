@@ -18,8 +18,8 @@ What is built, where it lives, and what is deliberately not built yet. The desig
 | `recon/integrity.py` | Every check, as a value rather than an exception |
 | `recon/observation.py` | The pipeline. `build_core` cannot see history; `finish` adds integrity |
 | `recon/snapshots.py` | Write, diff, trend, merge attribution |
-| `recon/fixtures.py` | Org-level ground truth loading |
-| `recon/metadata.py` | The `.unabandoned.yml` schema, incl. `expects-sibling` |
+| `recon/fixtures.py` | Org-level ground truth: asserted edges, paths and counts |
+| `recon/metadata.py` | The `.unabandoned.yml` schema — editorial fields only |
 | `recon/render/` | Theme, fact-aware components, computed SVG, the seven pages |
 
 Dependencies: **PyYAML and the npm CLI.** Everything else is stdlib. The tests need
@@ -38,9 +38,10 @@ neither npm nor a network.
   lockfile entry. The second half is new work, not a comparison of two things already
   computed: `ndeps` previously had a single source. The packument was already being
   fetched and its `versions[v].dependencies` discarded.
-- **M3** reads `expects-sibling` from each fork's own metadata (co-located, so it gets
-  updated in the same PR as the wiring) and `fixtures/org.yml` for cross-fork facts
-  that have no single home.
+- **M3** reads every fixture from `fixtures/org.yml`: asserted `edges` (which fork
+  declares which sibling), `paths` (how a package is reached), and `counts`. An empty
+  fixture set warns rather than passes — see the fourth bug below for why that is not
+  a stylistic choice.
 - **M4** is four cheap assertions in `integrity.py`. The uniformity detector looks for
   a hard non-zero floor across every repo, which is what the Renovate-dashboard
   miscount actually looked like — the values varied, so uniformity alone said nothing,
@@ -55,9 +56,10 @@ neither npm nor a network.
 
 ## Bugs this has found
 
-Worth recording. The first two are the exact class the design predicts. The third
-is a class the design did *not* anticipate, and it is arguably the more dangerous
-one, because its failure mode is a check that cries wolf.
+Worth recording. The first two are the exact class the design predicts. The last
+two are classes the design did *not* anticipate, and both are failures of the
+checking machinery rather than the thing checked: one cries wolf, the other never
+cries at all.
 
 **The coverage ledger under-counted its own fetches.** `coverage.fetches` was
 snapshotted from `session.summary()` before `_fork_row` ran, and `_fork_row` still
@@ -92,6 +94,29 @@ and the world disagree, not evidence about which one is at fault. The fixture
 world now contains a sibling reached through an intermediary, so the old
 semantics fail four tests including `test_a_clean_build_passes_every_check`.
 
+**A check passed for its whole life without verifying anything.**
+`m3.expected-siblings` read an `expects-sibling` list from each fork's own
+`.unabandoned.yml`. The co-location argument for putting it there was sound —
+a fact about one fork should change in the same pull request as the wiring it
+describes — and the cost was fatal: asserting the org's edge set meant 27 pull
+requests against 27 repositories. Nobody opened the first one. The check looped
+over 27 empty lists, asserted nothing, and fell through to PASS, reporting
+`0 hand-asserted edge(s) reproduced by the build` in green while 32 real edges
+went unverified.
+
+Two separate faults, and the second is the one that generalises. The placement
+made the check expensive to satisfy; the *default* made it silent about being
+unsatisfied. A check whose zero-evidence branch is PASS cannot fail, and a check
+that cannot fail is worse than no check, because it occupies the slot where a
+real one would go and reports the colour of a real one that is working. The
+fixtures now live in `fixtures/org.yml` — one repository, one pull request — and
+the empty case is a WARN that names how many derived edges nothing is asserting.
+A pass states its coverage (`3 of 32`) rather than its raw count, because
+"3 edges reproduced" reads as complete and "3 of 32" cannot.
+
+The same shape is worth grepping for elsewhere: any check that iterates a
+collection, `continue`s on the empty element, and returns PASS after the loop.
+
 **One check was removed rather than fixed.** `m4.zero-dep-sanity` warned when a
 package's resolved version declared no dependencies while `latest` declared some.
 On the first real build it fired on `buffer-xor@1.0.3` — no dependencies, against
@@ -118,9 +143,9 @@ skim past the panel, which costs more than it can catch.
 
 ## Notes for whoever picks this up
 
-- The `expects-sibling` field is additive and the existing validator in
-  `unabandoned/.github` does not reject unknown keys, so forks can adopt it before any
-  cutover without breaking their CI.
+- Fixtures are only worth what they cost to write. Assert what you independently know;
+  pasting the derived edge list into `org.yml` produces a golden file that detects change
+  — which M5 already does — while proving nothing about correctness.
 - `tests/world.py` is a fixture org built to contain every shape that has bitten us:
   an alias-wired edge, a repo with no metadata, a packument that 404s, and a package
   reached only through one of our own forks. Add to it rather than mocking in-place.

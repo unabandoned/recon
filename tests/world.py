@@ -30,7 +30,7 @@ from recon.resolve import parse_lockfile
 ORG = "unabandoned"
 
 
-def _yml(package, upstream, *, expects=None, used_by=None, status="active"):
+def _yml(package, upstream, *, used_by=None, status="active"):
     lines = [
         "schema: 1",
         f'package: "{package}"',
@@ -41,9 +41,6 @@ def _yml(package, upstream, *, expects=None, used_by=None, status="active"):
         f'why-forked: "abandoned upstream with an outdated tree"',
         f"status: {status}",
     ]
-    if expects:
-        lines.append("expects-sibling:")
-        lines += [f"  - {name}" for name in expects]
     if used_by:
         lines.append("used-by:")
         for consumer, purpose in used_by:
@@ -72,11 +69,10 @@ REPOS = [
 
 METADATA = {
     "browserify": _yml("@unabandoned/browserify", "browserify/browserify",
-                       expects=["crypto-browserify"],
                        used_by=[("some-app", "bundles the front end")]),
     "crypto-browserify": _yml("@unabandoned/crypto-browserify",
                               "crypto-browserify/crypto-browserify"),
-    "buffer": _yml("@unabandoned/buffer", "feross/buffer", expects=["ieee754"]),
+    "buffer": _yml("@unabandoned/buffer", "feross/buffer"),
     "ieee754": _yml("@unabandoned/ieee754", "feross/ieee754"),
     "detective": _yml("@unabandoned/detective", "browserify/detective"),
 }
@@ -318,3 +314,17 @@ def _page(query: str) -> int:
 
 def _json(obj) -> bytes:
     return json.dumps(obj).encode("utf-8")
+
+
+# Org-level ground truth for this world. Both edges are things the world's author
+# knows by hand: browserify declares crypto-browserify outright, and buffer
+# declares ieee754 through an npm alias, where the scope lives in the spec rather
+# than the key. Neither is read back out of the derivation.
+FIXTURES = {
+    "edges": [
+        {"fork": "@unabandoned/browserify", "declares": ["@unabandoned/crypto-browserify"]},
+        {"fork": "@unabandoned/buffer", "declares": ["@unabandoned/ieee754"]},
+    ],
+    "paths": [],
+    "counts": [],
+}
