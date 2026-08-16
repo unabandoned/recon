@@ -1,0 +1,125 @@
+name: intake
+
+# Audits a package tree the org does NOT own, and commits the report of record.
+#
+# This is the authoritative tier of §7b. It runs the *same* pipeline as the daily
+# dashboard — npm's real resolver, the same classifier, the same OSV join — with
+# only the root changed. A second resolution path would be a second home for the
+# bug classes recon exists to catch, so there isn't one.
+#
+# Same posture as `dashboard`: no secrets, and the resolver shells out to
+# `npm install --package-lock-only --ignore-scripts`, so npm walks registry
+# metadata only. No tarball is downloaded and no lifecycle script runs — which
+# matters more here than on the daily build, because the audited spec is
+# attacker-chosen input from a workflow_dispatch field.
+#
+# The report lands on the `data` branch under `reports/`, never `snapshots/`.
+# The org build globs `snapshots/` for history, so a report landing there would
+# enter the differ and inflate the org's own numbers with somebody else's tree.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: >-
+          npm spec to audit, e.g. "factor-bundle@2.0.0" or "factor-bundle".
+          Resolved with npm, so anything npm accepts works.
+        required: true
+      abandonment-days:
+        description: 'Days without a release before a package counts as abandoned.'
+        required: false
+        default: ''
+
+concurrency:
+  # Serialised against itself only. The dashboard's `pages` group is separate:
+  # an intake run publishes nothing to Pages and must not queue behind a build.
+  group: intake-${{ inputs.spec }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write        # only to append a report to the `data` branch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Restore reports and the inventory to join against
+        continue-on-error: true          # the branch does not exist on day one
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: data
+          path: .data
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Coverage overlap is a join against what the org already maintains. The
+      # most recent snapshot is that inventory. If it is missing, the audit still
+      # runs and reports coverage as UNKNOWN — never as zero, which would read as
+      # "nothing is covered, fork everything" and is the one wrong answer here
+      # that looks like a useful one.
+      - name: Select the inventory
+        id: inv
+        run: |
+          latest="$(ls -1 .data/snapshots/*.json 2>/dev/null | sort | tail -n 1 || true)"
+          if [ -n "$latest" ]; then
+            echo "path=$latest" >> "$GITHUB_OUTPUT"
+            echo "joining against $latest"
+          else
+            echo "path=.data/no-inventory.json" >> "$GITHUB_OUTPUT"
+            echo "::warning::No snapshot found — coverage will be reported as unknown."
+          fi
+
+      - name: Audit
+        id: audit
+        env:
+          RECON_REPORTS: .data/reports
+          RECON_INVENTORY: ${{ steps.inv.outputs.path }}
+          RECON_ABANDONMENT_DAYS: ${{ inputs.abandonment-days }}
+        run: |
+          python -m pip install --quiet pyyaml
+          mkdir -p .data/reports
+          # `intake` exits non-zero when the audit failed its own checks. The
+          # report is still written, and it is the thing worth keeping, so the
+          # status is captured rather than allowed to abort the commit step.
+          set +e
+          python -m recon.cli intake "${{ inputs.spec }}"
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Commit the report
+        run: |
+          cd .data
+          if [ ! -d .git ]; then
+            git init -q -b data
+            git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "${{ github.token }}" | base64 -w0)"
+          git add reports
+          if git diff --cached --quiet; then
+            echo "no new report"
+          else
+            git commit -qm "data: intake ${{ inputs.spec }}"
+            git push -q origin HEAD:data
+          fi
+
+      - name: Verdict
+        run: |
+          if [ "${{ steps.audit.outputs.status }}" != "0" ]; then
+            echo "::error::The audit failed its own integrity checks — the report is"\
+                 "committed, but its numbers are not trustworthy. See the report."
+            exit 1
+          fi

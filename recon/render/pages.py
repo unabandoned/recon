@@ -484,13 +484,262 @@ def health(obs: dict) -> str:
     )
 
 
-def render_all(obs: dict, delta: dict, trend: dict) -> dict[str, str]:
+# --------------------------------------------------------------------------- #
+# Intake (§7b) — the report of record for a foreign tree
+# --------------------------------------------------------------------------- #
+ACTION_BLURB = {
+    "alias": ("alias", "we already maintain this — wire it with an npm alias"),
+    "queued": ("queued", "already ranked in the org's own work queue"),
+    "fork": ("fork", "nothing covers it; adopting means a new fork"),
+}
+
+
+def _coverage_headline(report: dict) -> str:
+    """The one sentence someone reads before deciding.
+
+    When the inventory is missing it says so in place of a number. The tempting
+    alternative — "0 of 41 covered" — is a specific, actionable, wrong claim,
+    and it is the exact shape this codebase exists to make unsayable.
+    """
+    totals = report["totals"]
+    if "covered" not in totals:
+        return (
+            '<p class="empty">Coverage overlap is <b>unknown</b> for this run — the '
+            "fork inventory could not be read, so this report cannot say what is "
+            "already covered. It is not saying nothing is.</p>"
+        )
+    forks = sorted({p["covered_by"] for p in report["packages"] if p.get("covered_by")})
+    return (
+        f'<p class="lede"><b>{totals["covered"]} of {totals["packages"]}</b> package(s) '
+        f"in this tree are already covered by "
+        f'<b>{len(forks)}</b> <code>@unabandoned/*</code> fork(s). Adopting it needs '
+        f'<b>{totals["needs_alias"]}</b> alias(es), '
+        f'<b>{totals["already_queued"]}</b> already-queued fix(es), and '
+        f'<b>{totals["needs_fork"]}</b> new fork(s).</p>'
+    )
+
+
+def intake(report: dict, *, home: str = "../../index.html") -> str:
+    meta = report["meta"]
+    shell = dict(
+        current="intake.html", title=f"intake · {meta['spec']}",
+        css=CSS, nav=False, home=home, integrity_link="#checks",
+        meta={**meta, "built_at": meta.get("audited_at", "")},
+        integrity=report["integrity"],
+    )
+
+    if not report["tree"]["resolved"]:
+        return page(
+            **shell,
+            lede=(
+                f"<code>{e(meta['spec'])}</code> could not be resolved, so there is no "
+                "audit — not an empty one."
+            ),
+            body=(
+                '<div class="panel"><h3>Unresolved</h3>'
+                f'<p class="empty">{e(report["tree"]["reason"])}</p></div>'
+                + _checks_panel(report)
+            ),
+        )
+
+    totals = report["totals"]
+    stats = (
+        stat(totals["packages"], "packages in the tree")
+        + stat(totals.get("time_bomb", 0), "time bombs", cls="bad",
+               denominator="abandoned and carrying their own dependencies")
+        + stat(totals.get("unknown", 0), "unknown", cls="warn",
+               denominator="unmeasured is not the same as healthy")
+        + stat(totals["emergencies"], "emergencies", cls="bad",
+               denominator="time bomb with a live advisory")
+        + (stat(totals["covered"], "already covered", cls="good",
+                denominator="by a fork we already maintain")
+           if "covered" in totals else "")
+    )
+
+    plan_rows = []
+    for i, step in enumerate(report["plan"], start=1):
+        action = step["action"]
+        label, why = ACTION_BLURB.get(action, ("unknown", "no inventory to classify this"))
+        plan_rows.append(
+            f"<tr><td>{i}</td>"
+            f'<td><b>{e(step["package"])}</b>'
+            + (f'<div class="opt c">{trail(e(meta["package"]), step["via"], step["package"])}</div>'
+               if step["via"] else "")
+            + "</td>"
+            f'<td>{chip("emergency") if step["emergency"] else chip(step["state"])}</td>'
+            f'<td><span class="a">{e(label)}</span>'
+            f'<div class="opt c">{e(why)}</div></td>'
+            f'<td>{step["clears_count"]}</td>'
+            f'<td>{step["score"]}</td></tr>'
+        )
+
+    pkg_rows = []
+    for row in sorted(report["packages"],
+                      key=lambda p: (STATE_ORDER.get(p["state"], 9), p["name"])):
+        covered = row["covered"]
+        if covered is None:
+            cover_cell = chip("unknown", "unknown")
+        elif covered:
+            # The fork's real name, and how it matched. `JSONStream` maps to
+            # `@unabandoned/jsonstream` only after casefolding, and a reader who
+            # cannot see that cannot catch it being wrong.
+            cover_cell = (
+                chip("alive", "covered")
+                + f'<div class="opt c"><code>{e(row["covered_by"])}</code>'
+                + (" · matched case-insensitively"
+                   if row.get("covered_match") == "case-insensitive" else "")
+                + "</div>"
+            )
+        else:
+            cover_cell = "—"
+        pkg_rows.append(
+            f'<tr><td><b>{e(row["name"])}</b></td>'
+            f'<td>{e(", ".join(row["versions"]))}</td>'
+            f'<td>{chip(row["state"])}</td>'
+            f'<td>{e(row["reason"])}</td>'
+            f'<td>{cover_cell}</td>'
+            f'<td>{len(row["advisories"])}</td></tr>'
+        )
+
+    body = (
+        f'<div class="tiles">{stats}</div>'
+        + _coverage_headline(report)
+        + '<div class="panel"><h3>Adoption plan</h3>'
+        '<p class="note">Computed from the same dominator analysis as the org work '
+        "queue: the highest rot on each path, ranked by how much fixing it clears. "
+        "Executing every row leaves no time bomb standing — "
+        "<code>intake.plan-clears-rot</code> verifies that rather than assuming it.</p>"
+        + table(["#", "Package", "State", "Action", "Clears", "Score"], plan_rows,
+                empty="Nothing to do — no abandoned-and-rotting package in this tree.")
+        + "</div>"
+        + '<div class="panel"><h3>Every package in the resolved tree</h3>'
+        + table(["Package", "Versions", "State", "Why", "Covered", "Advisories"],
+                pkg_rows)
+        + "</div>"
+        + _reuse_panel(report)
+        + _checks_panel(report)
+    )
+
+    return page(
+        **shell,
+        lede=(
+            f"An audit of <code>{e(meta['spec'])}</code> — a tree this org does "
+            "<b>not</b> own. Same resolver, same classifier, same advisory join as the "
+            "daily build; only the root differs. This report never merges into the "
+            "org's own numbers, and recon does not watch it after today: it is a "
+            "timestamped observation, and it goes stale on purpose."
+        ),
+        body=body,
+    )
+
+
+def _reuse_panel(report: dict) -> str:
+    inv = report["inventory"]
+    if inv.get("status") != "ok":
+        return (
+            '<div class="panel"><h3>Provenance of the join</h3>'
+            f'<p class="empty">No fork inventory: {e(inv.get("detail", "unavailable"))}. '
+            "Coverage columns above read <b>unknown</b> rather than "
+            "<b>uncovered</b>.</p></div>"
+        )
+    return (
+        '<div class="panel"><h3>Provenance of the join</h3>'
+        f'<p class="note">Joined against {inv["forks"]} fork(s) and a '
+        f'{inv["queue"]}-entry work queue, from the observation built '
+        f'<code>{e(inv.get("observation_built_at") or "unknown")}</code>'
+        + (f' from <code>{e((inv.get("observation_builder_sha") or "")[:8])}</code>'
+           if inv.get("observation_builder_sha") else "")
+        + ". Coverage is only as current as that observation, which is why the "
+        "report records which one it was.</p></div>"
+    )
+
+
+def _checks_panel(report: dict) -> str:
+    rows = [
+        f'<tr><td>{chip(c["status"])}</td><td><code>{e(c["id"])}</code></td>'
+        f'<td>{e(c.get("mechanism", ""))}</td><td>{e(c["title"])}</td>'
+        f'<td>{e(c["detail"])}</td></tr>'
+        for c in report["integrity"]["checks"]
+    ]
+    return (
+        '<div class="panel" id="checks"><h3>Integrity</h3>'
+        '<p class="note">An audit that failed its own checks is reported, not '
+        "suppressed — the verdict travels with the numbers.</p>"
+        + table(["", "Check", "Mechanism", "What it asserts", "Result"], rows)
+        + "</div>"
+    )
+
+
+def intake_index(obs: dict, reports: list[dict], *, repo: str = "unabandoned/recon") -> str:
+    """The dashboard's intake tab: what has been audited, and how to audit more."""
+    rows = []
+    for r in reports:
+        if r["unreadable"]:
+            rows.append(
+                f'<tr><td class="mono">{e(r["spec"])}</td><td colspan="5">'
+                f'{chip("unknown", "unreadable")} the report file could not be parsed'
+                "</td></tr>"
+            )
+            continue
+        t = r["totals"]
+        covered = (f'{t["covered"]}/{t["packages"]}' if "covered" in t
+                   else chip("unknown", "unknown"))
+        rows.append(
+            f'<tr><td class="mono"><a href="intake/{e(r["href"])}">{e(r["spec"])}</a></td>'
+            f'<td>{e(r["audited_at"][:10])}</td>'
+            f'<td class="num">{t.get("packages", 0)}</td>'
+            f'<td class="num">{t.get("time_bomb", 0)}</td>'
+            f'<td>{covered}</td>'
+            f'<td>{chip(r["integrity"])}</td></tr>'
+        )
+
+    dispatch = f"https://github.com/{repo}/actions/workflows/intake.yml"
+    return page(
+        current="intake.html", title="intake",
+        lede=(
+            "Audit a tree this org does <b>not</b> own, before adopting it. The org "
+            "exists because someone adopted a tool and found half its dependencies "
+            "abandoned; this is that discovery, run on purpose and in advance."
+        ),
+        integrity=obs["integrity"], css=CSS, meta=obs["meta"],
+        body=(
+            '<div class="panel"><h3>Run an audit</h3>'
+            f'<p class="note">Dispatch the <a href="{e(dispatch)}"><code>intake</code> '
+            "workflow</a> with an npm spec — <code>factor-bundle@2.0.0</code>, or a bare "
+            "name for whatever <code>latest</code> resolves to. It runs the same "
+            "resolver, classifier and advisory join as the nightly build with only the "
+            "root changed, then commits the report and links it here.</p>"
+            '<p class="note">There is no in-page instant estimate. A second, '
+            "browser-side resolver was built and measured against this one: on "
+            "<code>factor-bundle@2.0.0</code> it reported 48 packages and 17 time bombs "
+            "where npm&rsquo;s own resolver finds 39 and 13, because it cannot dedupe "
+            "the way npm does. A number that is 31% wrong about the thing you are "
+            "deciding on is not a faster answer, it is a different one.</p>"
+            "</div>"
+            + '<div class="panel"><h3>Audited trees</h3>'
+            '<p class="note">Each report is a timestamped observation of somebody '
+            "else's tree. It never merges into the numbers on the other tabs, and it is "
+            "not refreshed — recon does not watch trees it does not own, so these go "
+            "visibly stale on purpose.</p>"
+            + table(
+                ["Spec", "Audited", "Packages", "Time bombs", "Covered", "Integrity"],
+                rows,
+                empty="No audits yet. Dispatch the workflow above to add one.",
+            )
+            + "</div>"
+        ),
+    )
+
+
+def render_all(obs: dict, delta: dict, trend: dict,
+               reports: list[dict] | None = None) -> dict[str, str]:
     return {
         "index.html": overview(obs, trend),
         "forks.html": forks(obs),
         "queue.html": queue(obs),
         "packages.html": packages(obs),
         "topology.html": topology(obs),
+        "intake.html": intake_index(obs, reports or []),
         "changes.html": changes(obs, delta),
         "health.html": health(obs),
     }

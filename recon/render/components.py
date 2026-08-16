@@ -27,6 +27,7 @@ PAGES = [
     ("queue.html", "Work queue"),
     ("packages.html", "Packages"),
     ("topology.html", "Topology"),
+    ("intake.html", "Intake"),
     ("changes.html", "Changes"),
     ("health.html", "Coverage &amp; health"),
 ]
@@ -157,7 +158,7 @@ def _label_cells(row_html: str, headers: list[str]) -> str:
     return _TD.sub(stamp, row_html)
 
 
-def banner(integrity: dict) -> str:
+def banner(integrity: dict, *, link: str = "health.html") -> str:
     """The build-wide verdict, at the top of every page.
 
     A visibly broken dashboard gets fixed; a silently stale one does not. So a
@@ -173,7 +174,7 @@ def banner(integrity: dict) -> str:
             '<div class="banner fail"><span class="icon">⚠</span><div>'
             f"<b>Integrity failure — these numbers are not trustworthy.</b>"
             f"{e(detail)} "
-            f'<a href="health.html">See all {len(failed)} failing check(s) →</a>'
+            f'<a href="{link}">See all {len(failed)} failing check(s) →</a>'
             "</div></div>"
         )
     if status == "warn":
@@ -181,14 +182,14 @@ def banner(integrity: dict) -> str:
             '<div class="banner warn"><span class="icon">◐</span><div>'
             f"<b>{counts.get('warn', 0)} integrity warning(s).</b>"
             "Nothing indicates a miscount, but something is worth a look. "
-            '<a href="health.html">Coverage &amp; health →</a>'
+            f'<a href="{link}">Coverage &amp; health →</a>'
             "</div></div>"
         )
     return (
         '<div class="banner pass"><span class="icon">✓</span><div>'
         f"<b>All {counts.get('pass', 0)} integrity checks passed.</b>"
         "Every number below was cross-checked against an independent derivation "
-        'or a hand-asserted fact. <a href="health.html">See the checks →</a>'
+        f'or a hand-asserted fact. <a href="{link}">See the checks →</a>'
         "</div></div>"
     )
 
@@ -225,7 +226,15 @@ def tabs(current: str) -> str:
 
 
 def page(*, current: str, title: str, lede: str, body: str, css: str,
-         meta: dict, integrity: dict | None = None) -> str:
+         meta: dict, integrity: dict | None = None, nav: bool = True,
+         integrity_link: str = "health.html", home: str = "") -> str:
+    """`nav=False` for pages served outside the dashboard root.
+
+    An intake report lives under `reports/<spec>/`, where every tab href would
+    resolve relative to that directory rather than the site root. Rather than
+    prefixing them and hoping the depth is right, such a page gets a single
+    explicit link home.
+    """
     built = (meta or {}).get("built_at", "")
     sha = (meta or {}).get("builder_sha", "")
     duration = (meta or {}).get("duration_ms")
@@ -246,8 +255,9 @@ def page(*, current: str, title: str, lede: str, body: str, css: str,
         '<div class="masthead"><h1>recon <span class="dim">· '
         f'{e(title)}</span></h1></div>'
         f'<p class="lede">{lede}</p>'
-        + tabs(current)
-        + (banner(integrity) if integrity else "")
+        + (tabs(current) if nav else
+           (f'<nav class="tabs"><a href="{home}">← recon dashboard</a></nav>' if home else ""))
+        + (banner(integrity, link=integrity_link) if integrity else "")
         + body
         + f'<p class="foot">{" · ".join(foot_bits)}</p>'
         "</div></body></html>"

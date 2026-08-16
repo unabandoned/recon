@@ -69,6 +69,12 @@ def worst_status(checks: Iterable[Check]) -> str:
     return max((c.status for c in checks), key=lambda s: order[s], default=PASS)
 
 
+def counts(checks: Iterable[Check]) -> dict[str, int]:
+    """The per-status tally every integrity block carries."""
+    checks = list(checks)
+    return {s: sum(1 for c in checks if c.status == s) for s in (PASS, WARN, FAIL)}
+
+
 # --------------------------------------------------------------------------- #
 # M1 — errors are a state, never a default
 # --------------------------------------------------------------------------- #
@@ -209,40 +215,75 @@ def dependency_counts_agree(observations: list[dict]) -> Check:
 # --------------------------------------------------------------------------- #
 # M3 — ground-truth fixtures
 # --------------------------------------------------------------------------- #
-def expected_siblings_present(per_fork: dict[str, dict]) -> Check:
-    """Every `expects-sibling` edge a fork declares must appear in the derived graph.
+def expected_siblings_present(
+    per_fork: dict[str, dict], asserted: list[dict] | None = None
+) -> Check:
+    """Every hand-asserted sibling edge must appear in the derived graph.
 
-    These are facts a human asserted in the fork's own metadata. The build has to
+    These are facts a human wrote down in `fixtures/org.yml`. The build has to
     reproduce them. This is the mechanism that turns "someone happened to notice
     the graph looked wrong" into something that happens every night.
+
+    An empty fixture set is a **warning, not a pass**. The first version of this
+    check returned PASS when nothing was asserted, and since the assertions then
+    lived in each fork's own metadata — twenty-seven repositories, twenty-seven
+    pull requests — nothing ever was. It reported green for its whole life while
+    verifying zero of thirty-two real edges. A check that cannot fail is worse
+    than no check: it occupies the slot where a real one would go.
     """
-    missing = []
-    asserted = 0
-    for fork, data in sorted(per_fork.items()):
-        expected = data.get("expects_sibling") or []
-        if not expected:
+    derived_total = sum(
+        len(set(d.get("manifest_edges") or []) | set(d.get("lockfile_edges") or []))
+        for d in per_fork.values()
+    )
+    asserted = asserted or []
+
+    if not asserted:
+        return Check(
+            "m3.expected-siblings", "M3", WARN,
+            "Hand-asserted sibling edges appear in the derived graph",
+            f"no sibling edge is asserted in fixtures/org.yml — the build derived "
+            f"{derived_total} fork-to-fork edge(s) and nothing independent says any "
+            f"of them is right",
+            {"asserted": 0, "derived": derived_total},
+        )
+
+    problems: list[dict] = []
+    checked = 0
+    for item in asserted:
+        fork = item.get("fork", "")
+        want = sorted(set(item.get("declares") or []))
+        data = per_fork.get(fork)
+        if data is None:
+            problems.append({
+                "fork": fork, "missing": want, "derived": [],
+                "reason": "no such fork in this build",
+            })
             continue
         derived = set(data.get("lockfile_edges") or []) | set(data.get("manifest_edges") or [])
-        asserted += len(expected)
-        gap = sorted(set(expected) - derived)
+        checked += len(want)
+        gap = sorted(set(want) - derived)
         if gap:
-            missing.append({"fork": fork, "missing": gap, "derived": sorted(derived)})
+            problems.append({
+                "fork": fork, "missing": gap, "derived": sorted(derived),
+                "reason": "edge not derived",
+            })
 
-    if missing:
-        first = missing[0]
+    if problems:
+        first = problems[0]
         return Check(
             "m3.expected-siblings", "M3", FAIL,
-            "Declared sibling edges appear in the derived graph",
-            f"{len(missing)} fork(s) are missing a declared edge — e.g. {first['fork']} "
+            "Hand-asserted sibling edges appear in the derived graph",
+            f"{len(problems)} assertion(s) are not reproduced — e.g. {first['fork']} "
             f"expects {', '.join(first['missing'])} but the build derived "
             f"{', '.join(first['derived']) or 'no scope edges at all'}",
-            {"missing": missing[:20], "asserted": asserted},
+            {"missing": problems[:20], "asserted": checked, "derived": derived_total},
         )
     return Check(
         "m3.expected-siblings", "M3", PASS,
-        "Declared sibling edges appear in the derived graph",
-        f"{asserted} hand-asserted edge(s) reproduced by the build",
-        {"asserted": asserted},
+        "Hand-asserted sibling edges appear in the derived graph",
+        f"{checked} of {derived_total} derived edge(s) are hand-asserted, and the "
+        f"build reproduced every one",
+        {"asserted": checked, "derived": derived_total},
     )
 
 
@@ -322,9 +363,10 @@ def org_fixtures_hold(fixtures: dict, observed: dict) -> list[Check]:
     if not checks:
         checks.append(Check(
             "m3.org-fixtures", "M3", WARN,
-            "Org-level fixtures are asserted",
-            "no org-level fixtures defined — the build has nothing independent to "
-            "check itself against beyond per-fork sibling edges",
+            "Reachability and counted fixtures are asserted",
+            "no path or count fixtures defined — sibling edges say how the forks "
+            "are wired, but nothing asserts how a package is reached through that "
+            "wiring, or how many of anything there should be",
             {},
         ))
     return checks

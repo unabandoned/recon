@@ -26,6 +26,7 @@ pip install pyyaml                    # the only dependency; everything else is 
 python -m unittest discover -s tests -t .   # the whole suite, fully offline
 GITHUB_TOKEN=… python -m recon.cli build    # writes ./public and a snapshot
 python -m recon.cli verify                  # non-zero if a check failed
+python -m recon.cli intake factor-bundle@2.0.0   # audit a tree we do NOT own
 ```
 
 ## How it avoids lying
@@ -37,7 +38,7 @@ every build and land on the **Coverage & health** page.
 |---|---|---|
 | **M1** | Errors are a state, never a default | A failed fetch must reach the page as `unknown`, counted in every aggregate, carrying its reason |
 | **M2** | Independent double-derivation | Our manifest reader and **npm's own resolver** must agree on the `@unabandoned` edges; the registry and the lockfile must agree on every version's dependencies |
-| **M3** | Ground-truth fixtures | Edges and counts a human asserted — in each fork's `.unabandoned.yml` and in [`fixtures/org.yml`](./fixtures/org.yml) — must be reproduced by the build |
+| **M3** | Ground-truth fixtures | Edges, paths and counts a human asserted in [`fixtures/org.yml`](./fixtures/org.yml) must be reproduced by the build; asserting nothing warns rather than passes |
 | **M4** | Shape and uniformity invariants | An org of sibling-wired forks cannot have zero internal edges; a metric with a hard non-zero floor on every repo is a counted artifact; the coverage ledger must balance |
 | **M5** | Differential vs the last snapshot | No headline aggregate may swing past its threshold without a human naming the change |
 

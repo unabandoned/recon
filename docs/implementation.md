@@ -15,11 +15,12 @@ What is built, where it lives, and what is deliberately not built yet. The desig
 | `recon/classify.py` | `alive` / `inert` / `time_bomb` / `unknown`, with evidence |
 | `recon/graph.py` | Dominators, shadowing, blast radius, the ranked queue |
 | `recon/osv.py` | Advisory batch join and the emergency tier |
+| `recon/intake.py` | §7b: audit a foreign tree, join it against the fork inventory |
 | `recon/integrity.py` | Every check, as a value rather than an exception |
 | `recon/observation.py` | The pipeline. `build_core` cannot see history; `finish` adds integrity |
 | `recon/snapshots.py` | Write, diff, trend, merge attribution |
-| `recon/fixtures.py` | Org-level ground truth loading |
-| `recon/metadata.py` | The `.unabandoned.yml` schema, incl. `expects-sibling` |
+| `recon/fixtures.py` | Org-level ground truth: asserted edges, paths and counts |
+| `recon/metadata.py` | The `.unabandoned.yml` schema — editorial fields only |
 | `recon/render/` | Theme, fact-aware components, computed SVG, the seven pages |
 
 Dependencies: **PyYAML and the npm CLI.** Everything else is stdlib. The tests need
@@ -38,9 +39,10 @@ neither npm nor a network.
   lockfile entry. The second half is new work, not a comparison of two things already
   computed: `ndeps` previously had a single source. The packument was already being
   fetched and its `versions[v].dependencies` discarded.
-- **M3** reads `expects-sibling` from each fork's own metadata (co-located, so it gets
-  updated in the same PR as the wiring) and `fixtures/org.yml` for cross-fork facts
-  that have no single home.
+- **M3** reads every fixture from `fixtures/org.yml`: asserted `edges` (which fork
+  declares which sibling), `paths` (how a package is reached), and `counts`. An empty
+  fixture set warns rather than passes — see the fourth bug below for why that is not
+  a stylistic choice.
 - **M4** is four cheap assertions in `integrity.py`. The uniformity detector looks for
   a hard non-zero floor across every repo, which is what the Renovate-dashboard
   miscount actually looked like — the values varied, so uniformity alone said nothing,
@@ -55,9 +57,10 @@ neither npm nor a network.
 
 ## Bugs this has found
 
-Worth recording. The first two are the exact class the design predicts. The third
-is a class the design did *not* anticipate, and it is arguably the more dangerous
-one, because its failure mode is a check that cries wolf.
+Worth recording. The first two are the exact class the design predicts. The last
+two are classes the design did *not* anticipate, and both are failures of the
+checking machinery rather than the thing checked: one cries wolf, the other never
+cries at all.
 
 **The coverage ledger under-counted its own fetches.** `coverage.fetches` was
 snapshotted from `session.summary()` before `_fork_row` ran, and `_fork_row` still
@@ -92,6 +95,40 @@ and the world disagree, not evidence about which one is at fault. The fixture
 world now contains a sibling reached through an intermediary, so the old
 semantics fail four tests including `test_a_clean_build_passes_every_check`.
 
+**A check passed for its whole life without verifying anything.**
+`m3.expected-siblings` read an `expects-sibling` list from each fork's own
+`.unabandoned.yml`. The co-location argument for putting it there was sound —
+a fact about one fork should change in the same pull request as the wiring it
+describes — and the cost was fatal: asserting the org's edge set meant 27 pull
+requests against 27 repositories. Nobody opened the first one. The check looped
+over 27 empty lists, asserted nothing, and fell through to PASS, reporting
+`0 hand-asserted edge(s) reproduced by the build` in green while 32 real edges
+went unverified.
+
+Two separate faults, and the second is the one that generalises. The placement
+made the check expensive to satisfy; the *default* made it silent about being
+unsatisfied. A check whose zero-evidence branch is PASS cannot fail, and a check
+that cannot fail is worse than no check, because it occupies the slot where a
+real one would go and reports the colour of a real one that is working. The
+fixtures now live in `fixtures/org.yml` — one repository, one pull request — and
+the empty case is a WARN that names how many derived edges nothing is asserting.
+A pass states its coverage (`3 of 32`) rather than its raw count, because
+"3 edges reproduced" reads as complete and "3 of 32" cannot.
+
+The same shape is worth grepping for elsewhere: any check that iterates a
+collection, `continue`s on the empty element, and returns PASS after the loop.
+
+**The coverage join reported that we do not maintain a package we maintain.**
+Found by reading the first real intake report rather than by any check.
+`@unabandoned/jsonstream` is the org's fork of `JSONStream`; npm requires
+*scoped* package names to be lowercase, while unscoped legacy names need not
+be, so the two can never match exactly. The exact-match join marked it
+uncovered and the adoption plan proposed forking it a second time — and, worse,
+labelled the intervention `@unabandoned/JSONStream`, a package that does not
+exist. The join now casefolds and carries its match evidence (`exact` /
+`case-insensitive`) into every covered row, because a reader who cannot see how
+a match was made cannot catch it being wrong.
+
 **One check was removed rather than fixed.** `m4.zero-dep-sanity` warned when a
 package's resolved version declared no dependencies while `latest` declared some.
 On the first real build it fired on `buffer-xor@1.0.3` — no dependencies, against
@@ -108,19 +145,73 @@ skim past the panel, which costs more than it can catch.
   dev tree is what runs beside publish credentials) and published-vs-HEAD resolution.
   `resolve_tree(dev=True)` and `Tree.dev` exist and work; nothing calls them yet, and
   the observation has no `tree: "head"` rows.
-- **Intake (§7b).** Neither tier. The authoritative tier is small — parameterise the
-  audit root and join against the fork inventory — but it lands after Phase 4 so it
-  can report grades honestly.
+- **Intake's browser tier (§7b, "recon-lite").** Built as a spike, measured, and
+  deliberately not shipped. See below.
 - **The consumer badge feed.** Grades are computed and rendered; the embeddable badge
   and the RSS/JSON changelog are not.
 - **Cutover.** `unabandoned/.github` still builds and publishes the old dashboard.
   Switching over means deciding §13 Q1 and Q7 and redirecting the old URL.
 
+## Intake, and the tier that was measured and dropped
+
+`recon.intake.audit()` is the authoritative tier: npm's real resolver, the same
+classifier, the same dominator ranking, the same OSV join, rooted at a foreign
+spec instead of a fork. It adds exactly one thing — the coverage join against
+the org's own inventory — and that join is a `Fact`, so an unreadable inventory
+produces `covered: null` and a report with **no** coverage totals at all rather
+than a confident "0 covered, fork everything".
+
+The spec (§7b) also called for an instant browser tier using npm's own
+primitives, and made a specific claim: that a packument BFS would be
+"~faithful for the reachable `(name, version)` set", diverging only on peer
+deps, optional deps and `overrides`. It was built and measured against the
+authoritative tier on the same spec:
+
+| | packages | time bombs | wall clock | downloaded |
+|---|---|---|---|---|
+| npm's resolver | 39 | 13 | ~75 s (Actions) | — |
+| recon-lite (browser) | 48 | 17 | 7 s | 3.4 MB |
+
+**+23% packages, +31% time bombs.** The divergence is not the edge cases the
+spec named; it is deduplication, which is most of what a resolver does. The
+number recon-lite is most wrong about is the exact number the adoption decision
+turns on.
+
+Three other findings, all of which only appear once you build it:
+
+- `npm-package-arg` reads a bare `process` global and imports `node:path`,
+  `node:os`, `node:url`; `npm-install-checks` imports `node:fs` and
+  `node:process`. Shimming was assumed safe on the grounds that only registry
+  specs are ever resolved — **wrong**: `npm-pick-manifest` normalises every
+  candidate manifest's `bin` field, so `path.basename` and `path.join` run on
+  the first package. The shim has to be a *correct* POSIX `path`, which is a
+  third implementation of something, in a repository whose thesis is that
+  second implementations are where bugs live. The first draft of it disagreed
+  with `node:path` on three of fifteen cases.
+- Classification needs publish dates, and the abbreviated packument
+  (`application/vnd.npm.install-v1+json`) has no `time` field. The full document
+  is roughly twice the bytes — hence 3.4 MB for one 39-package tree, on a
+  dashboard whose stated priority is the phone.
+- Vendoring pulls nine packages (`npm-package-arg`, `npm-pick-manifest`,
+  `semver`, `hosted-git-info`, `lru-cache`, `npm-install-checks`,
+  `npm-normalize-package-bin`, `proc-log`, `validate-npm-package-name`) into a
+  tool whose entire purpose is making invisible dependency trees visible.
+
+None of this is fatal, and the spike works — it resolves real trees in a real
+browser. It is recorded here rather than shipped because the trade it actually
+offers is "7 seconds instead of a workflow dispatch, in exchange for an answer
+that is 31% wrong and 3.4 MB heavy". The intake page says so in as many words,
+with the numbers, rather than quietly omitting the feature. If it is ever
+wanted, the honest version is a *fidelity-badged estimate* that refuses to print
+a plan — and it should be built with `vendor/recon-lite/package.json` +
+lockfile committed so Renovate can see the tree, plus a CI check that the
+committed bundle still matches the lockfile.
+
 ## Notes for whoever picks this up
 
-- The `expects-sibling` field is additive and the existing validator in
-  `unabandoned/.github` does not reject unknown keys, so forks can adopt it before any
-  cutover without breaking their CI.
+- Fixtures are only worth what they cost to write. Assert what you independently know;
+  pasting the derived edge list into `org.yml` produces a golden file that detects change
+  — which M5 already does — while proving nothing about correctness.
 - `tests/world.py` is a fixture org built to contain every shape that has bitten us:
   an alias-wired edge, a repo with no metadata, a packument that 404s, and a package
   reached only through one of our own forks. Add to it rather than mocking in-place.
@@ -139,6 +230,12 @@ skim past the panel, which costs more than it can catch.
   as a list for narrow ones, with CSS picking one. That is a form decision, not a
   fallback — the graph is 1,088px wide with its root centred, so a phone opens on
   empty canvas, and scaling it to fit puts the labels back under 3px.
+- An intake report is written under `reports/`, never `snapshots/`. That is not
+  a naming convention, it is the enforcement: the org build globs `snapshots/`
+  for history, so a report landing there would enter the differ and inflate the
+  org's own counts with somebody else's tree. `tests/test_intake.py` asserts
+  both the path and that neither `observation.py` nor `snapshots.py` mentions
+  `reports` at all.
 - The queue's scoring function is deliberately simple and legible. If it grows, keep
   every input visible next to the rank — a ranking nobody can check is exactly the
   kind of confident number this repository exists to distrust.

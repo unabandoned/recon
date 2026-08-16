@@ -42,7 +42,7 @@ def build(w: world.World | None = None, *, advisories: bool = True):
 
 def finished(core, inputs, *, previous=None, fixtures=None):
     checks = obs_mod.run_checks(
-        core, fixtures=fixtures or {"paths": [], "counts": []},
+        core, fixtures=fixtures if fixtures is not None else world.FIXTURES,
         previous=previous, acknowledged=set(),
         rederived=obs_mod.canonical(obs_mod.strip(core)),
     )
@@ -241,19 +241,66 @@ class Integrity(unittest.TestCase):
         check = next(c for c in obs["integrity"]["checks"] if c["id"] == "m3.expected-siblings")
         self.assertEqual(check["status"], "pass")
         self.assertEqual(check["data"]["asserted"], 2)
+        # A pass has to state its own coverage. "2 edges reproduced" reads as
+        # complete whether the graph has 2 edges or 32; "2 of N" cannot.
+        self.assertEqual(check["data"]["derived"], 2)
+        self.assertIn("2 of 2", check["detail"])
+
+    def test_asserting_no_sibling_edge_at_all_is_not_a_pass(self):
+        """The defect this check shipped with.
+
+        Every fork carried an empty `expects-sibling`, so the loop asserted
+        nothing and fell through to PASS — green, for the whole life of the
+        check, over a graph nothing had ever verified. An empty fixture set is
+        an absence of evidence and has to render as one.
+        """
+        w, inputs, core = build()
+        obs = finished(core, inputs, fixtures={"edges": [], "paths": [], "counts": []})
+        check = next(c for c in obs["integrity"]["checks"] if c["id"] == "m3.expected-siblings")
+        self.assertEqual(check["status"], "warn")
+        self.assertEqual(check["data"]["asserted"], 0)
+        self.assertGreater(check["data"]["derived"], 0)
+        self.assertIn(str(check["data"]["derived"]), check["detail"])
+
+    def test_an_edge_fixture_naming_an_unknown_fork_fails(self):
+        """A fixture that outlives the fork it describes must not go quiet."""
+        w, inputs, core = build()
+        obs = finished(core, inputs, fixtures={
+            **world.FIXTURES,
+            "edges": [{"fork": "@unabandoned/gone", "declares": ["@unabandoned/buffer"]}],
+        })
+        check = next(c for c in obs["integrity"]["checks"] if c["id"] == "m3.expected-siblings")
+        self.assertEqual(check["status"], "fail")
+
+    def test_a_sibling_reached_only_through_an_intermediary_is_not_an_edge(self):
+        """browserify reaches detective via module-deps; it does not declare it.
+
+        Asserting the reachable set as wiring is the mistake that made the first
+        version of the M2 edge check unsatisfiable. The fixture schema has to
+        reject it too, or it just relocates the confusion.
+        """
+        w, inputs, core = build()
+        obs = finished(core, inputs, fixtures={
+            **world.FIXTURES,
+            "edges": [{"fork": "@unabandoned/browserify",
+                       "declares": ["@unabandoned/detective"]}],
+        })
+        check = next(c for c in obs["integrity"]["checks"] if c["id"] == "m3.expected-siblings")
+        self.assertEqual(check["status"], "fail")
 
     def test_a_stale_org_fixture_fails_the_build(self):
         w, inputs, core = build()
         obs = finished(core, inputs, fixtures={
+            **world.FIXTURES,
             "paths": [{"fork": "@unabandoned/browserify", "package": "readable-stream",
                        "via": ["browserify-sign"]}],
-            "counts": [],
         })
         self.assertEqual(obs["integrity"]["status"], "fail")
 
     def test_a_true_org_fixture_passes(self):
         w, inputs, core = build()
         obs = finished(core, inputs, fixtures={
+            **world.FIXTURES,
             "paths": [{"fork": "@unabandoned/browserify", "package": "readable-stream",
                        "via": ["@unabandoned/crypto-browserify", "hash-base"]}],
             "counts": [{"metric": "open_issues", "subject": "browserify", "equals": 1}],
@@ -340,9 +387,14 @@ class Rendering(unittest.TestCase):
         self.html = pages.render_all(self.obs, self.delta, {})
 
     def test_every_page_renders(self):
-        self.assertEqual(sorted(self.html), sorted(
-            ["index.html", "forks.html", "queue.html", "packages.html",
-             "topology.html", "changes.html", "health.html"]))
+        """The nav and the rendered set are the same set.
+
+        Asserted against `PAGES` rather than a hand-copied list, because the
+        failure this prevents is a tab linking to a page nothing writes — and a
+        second hardcoded list is how that gets shipped.
+        """
+        from recon.render.components import PAGES
+        self.assertEqual(sorted(self.html), sorted(href for href, _ in PAGES))
         for name, doc in self.html.items():
             self.assertTrue(doc.startswith("<!doctype html>"), name)
             self.assertIn("</html>", doc)
@@ -364,8 +416,8 @@ class Rendering(unittest.TestCase):
 
     def test_a_failing_check_produces_a_red_banner(self):
         obs = finished(self.core, self.inputs, fixtures={
+            **world.FIXTURES,
             "paths": [{"fork": "@unabandoned/browserify", "package": "nope"}],
-            "counts": [],
         })
         html = pages.overview(obs, {})
         self.assertIn("not trustworthy", html)
@@ -408,7 +460,7 @@ class FixtureFile(unittest.TestCase):
     def test_a_missing_fixture_file_is_not_an_error(self):
         data, errors = fixtures_mod.load(Path("/nonexistent/org.yml"))
         self.assertEqual(errors, [])
-        self.assertEqual(data, {"paths": [], "counts": []})
+        self.assertEqual(data, {"edges": [], "paths": [], "counts": []})
 
     def test_a_malformed_fixture_is_an_error(self):
         with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as fh:

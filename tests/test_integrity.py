@@ -87,25 +87,42 @@ class M2(unittest.TestCase):
 
 
 class M3(unittest.TestCase):
+    ASSERTED = [{"fork": "@unabandoned/buffer", "declares": ["@unabandoned/ieee754"]}]
+
     def test_missing_declared_sibling_fails(self):
-        check = I.expected_siblings_present({
-            "@unabandoned/buffer": {
-                "expects_sibling": ["@unabandoned/ieee754"],
-                "manifest_edges": [], "lockfile_edges": [],
-            }
-        })
+        check = I.expected_siblings_present(
+            {"@unabandoned/buffer": {"manifest_edges": [], "lockfile_edges": []}},
+            self.ASSERTED,
+        )
         self.assertEqual(check.status, I.FAIL)
         self.assertIn("no scope edges at all", check.detail)
 
     def test_declared_sibling_present_passes(self):
-        check = I.expected_siblings_present({
-            "@unabandoned/buffer": {
-                "expects_sibling": ["@unabandoned/ieee754"],
+        check = I.expected_siblings_present(
+            {"@unabandoned/buffer": {
                 "manifest_edges": ["@unabandoned/ieee754"],
                 "lockfile_edges": ["@unabandoned/ieee754"],
-            }
-        })
+            }},
+            self.ASSERTED,
+        )
         self.assertEqual(check.status, I.PASS)
+        self.assertEqual(check.data, {"asserted": 1, "derived": 1})
+
+    def test_asserting_nothing_warns_rather_than_passing(self):
+        """No fixtures is an absence of evidence, not evidence of absence."""
+        check = I.expected_siblings_present(
+            {"@unabandoned/buffer": {
+                "manifest_edges": ["@unabandoned/ieee754"],
+                "lockfile_edges": ["@unabandoned/ieee754"],
+            }},
+            [],
+        )
+        self.assertEqual(check.status, I.WARN)
+        self.assertEqual(check.data, {"asserted": 0, "derived": 1})
+
+    def test_an_assertion_about_a_fork_that_does_not_exist_fails(self):
+        check = I.expected_siblings_present({}, self.ASSERTED)
+        self.assertEqual(check.status, I.FAIL)
 
     def test_asserted_path_that_does_not_exist_fails(self):
         checks = I.org_fixtures_hold(

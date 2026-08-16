@@ -30,7 +30,7 @@ from recon.resolve import parse_lockfile
 ORG = "unabandoned"
 
 
-def _yml(package, upstream, *, expects=None, used_by=None, status="active"):
+def _yml(package, upstream, *, used_by=None, status="active"):
     lines = [
         "schema: 1",
         f'package: "{package}"',
@@ -41,9 +41,6 @@ def _yml(package, upstream, *, expects=None, used_by=None, status="active"):
         f'why-forked: "abandoned upstream with an outdated tree"',
         f"status: {status}",
     ]
-    if expects:
-        lines.append("expects-sibling:")
-        lines += [f"  - {name}" for name in expects]
     if used_by:
         lines.append("used-by:")
         for consumer, purpose in used_by:
@@ -72,11 +69,10 @@ REPOS = [
 
 METADATA = {
     "browserify": _yml("@unabandoned/browserify", "browserify/browserify",
-                       expects=["crypto-browserify"],
                        used_by=[("some-app", "bundles the front end")]),
     "crypto-browserify": _yml("@unabandoned/crypto-browserify",
                               "crypto-browserify/crypto-browserify"),
-    "buffer": _yml("@unabandoned/buffer", "feross/buffer", expects=["ieee754"]),
+    "buffer": _yml("@unabandoned/buffer", "feross/buffer"),
     "ieee754": _yml("@unabandoned/ieee754", "feross/ieee754"),
     "detective": _yml("@unabandoned/detective", "browserify/detective"),
 }
@@ -152,6 +148,49 @@ LOCKS = {
     }},
 }
 
+# A tree the org does NOT own, for intake (§7b). Deliberately shaped around the
+# join's failure modes rather than around a tidy example:
+#
+#   JSONStream      covered, but only after casefolding — npm forces scoped
+#                   names lowercase, so our fork of `JSONStream` is published as
+#                   `@unabandoned/jsonstream`. An exact-match join reports this
+#                   as uncovered and proposes forking it a second time.
+#   readable-stream covered exactly, and carries the advisory
+#   hash-base       uncovered, but already ranked in the org's own work queue
+#   left-pad        uncovered and unqueued — the only genuinely new fork
+#   through         abandoned with no dependencies: inert, so it is not an
+#                   intervention even though it is abandoned
+LOCKS["foreign-tool@1.0.0"] = {"packages": {
+    "": {"dependencies": {"foreign-tool": "^1"}},
+    "node_modules/foreign-tool": {
+        "version": "1.0.0",
+        "dependencies": {"JSONStream": "^1.3.5", "hash-base": "^3.0.0",
+                         "left-pad": "^1.3.0"}},
+    "node_modules/JSONStream": {
+        "version": "1.3.5", "dependencies": {"through": "^2.3.8"}},
+    "node_modules/through": {"version": "2.3.8"},
+    "node_modules/hash-base": {
+        "version": "3.1.0", "dependencies": {"readable-stream": "^3.6.0"}},
+    "node_modules/readable-stream": {
+        "version": "3.6.2", "dependencies": {"inherits": "^2.0.3"}},
+    "node_modules/inherits": {"version": "2.0.4"},
+    "node_modules/left-pad": {
+        "version": "1.3.0", "dependencies": {"inherits": "^2.0.3"}},
+}}
+
+#: The org inventory an intake run joins against. Hand-written rather than
+#: derived from a build, so a test can assert the join without the join's own
+#: inputs being whatever today's fixture build happens to produce.
+INVENTORY = {
+    "meta": {"built_at": "2026-08-16T06:00:00Z", "builder_sha": "deadbeefcafe"},
+    "forks": [
+        {"package": "@unabandoned/jsonstream"},      # forks `JSONStream`
+        {"package": "@unabandoned/readable-stream"},
+        {"package": "@unabandoned/ieee754"},
+    ],
+    "queue": [{"package": "hash-base"}],
+}
+
 # name -> (latest version, publish date, {version: [deps]})
 PACKUMENTS = {
     "@unabandoned/browserify": ("17.0.1", "2026-07-01",
@@ -165,6 +204,10 @@ PACKUMENTS = {
     "hash-base": ("3.1.0", "2020-01-20", {"3.1.0": ["readable-stream"]}),
     "readable-stream": ("3.6.2", "2022-06-01", {"3.6.2": ["inherits"]}),
     "inherits": ("2.0.4", "2019-01-01", {"2.0.4": []}),
+    "foreign-tool": ("1.0.0", "2026-07-10", {"1.0.0": ["JSONStream", "hash-base", "left-pad"]}),
+    "JSONStream": ("1.3.5", "2018-06-01", {"1.3.5": ["through"]}),
+    "through": ("2.3.8", "2017-01-01", {"2.3.8": []}),
+    "left-pad": ("1.3.0", "2018-03-01", {"1.3.0": ["inherits"]}),
     # through2 has no packument entry -> the fetch fails -> `unknown`.
 }
 
@@ -318,3 +361,17 @@ def _page(query: str) -> int:
 
 def _json(obj) -> bytes:
     return json.dumps(obj).encode("utf-8")
+
+
+# Org-level ground truth for this world. Both edges are things the world's author
+# knows by hand: browserify declares crypto-browserify outright, and buffer
+# declares ieee754 through an npm alias, where the scope lives in the spec rather
+# than the key. Neither is read back out of the derivation.
+FIXTURES = {
+    "edges": [
+        {"fork": "@unabandoned/browserify", "declares": ["@unabandoned/crypto-browserify"]},
+        {"fork": "@unabandoned/buffer", "declares": ["@unabandoned/ieee754"]},
+    ],
+    "paths": [],
+    "counts": [],
+}

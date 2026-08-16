@@ -7,15 +7,12 @@ request.
 The file holds **editorial** facts only: what the package is, why we forked it,
 where it's used. If GitHub can answer it, it does not belong here.
 
-One field is new in this schema and deserves its rationale. `expects-sibling`
-lists the `@unabandoned/*` forks this fork is *known* to wire — a hand-asserted
-fact the build must reproduce (mechanism M3). It looks like recorded derivable
-state and is the opposite: the build derives the edge set independently and
-fails if a declared edge is missing. That is exactly how the topology bug was
-actually caught — contradiction with something a human knew — turned from luck
-into machinery. It lives here rather than in a central file because it is a
-fact *about this fork*, and the co-location rule exists so it gets updated in
-the same pull request that changes the wiring.
+Hand-asserted facts the build must reproduce (mechanism M3) do *not* live here.
+They did briefly, as an `expects-sibling` list per fork, on the co-location
+argument. Asserting the org's wiring that way costs one pull request per fork,
+so it never happened and the check that read the field passed vacuously for its
+whole life. The assertions now live in `fixtures/org.yml` in the recon repo,
+where writing one costs a single pull request.
 """
 from __future__ import annotations
 
@@ -106,28 +103,6 @@ def validate(data: Any) -> list[str]:
     ):
         errors.append("`tags` must be a list of strings when present")
 
-    # expects-sibling — the M3 ground-truth edges.
-    expects = data.get("expects-sibling")
-    if expects is not None:
-        if not isinstance(expects, list) or not all(isinstance(s, str) for s in expects):
-            errors.append("`expects-sibling` must be a list of strings when present")
-        else:
-            for i, name in enumerate(expects):
-                if not name.strip():
-                    errors.append(f"`expects-sibling[{i}]` must be a non-empty string")
-                elif name.startswith("@") and not name.startswith(SCOPE):
-                    errors.append(
-                        f"`expects-sibling[{i}]` must name an {SCOPE}* package "
-                        f"(got {name!r}); bare names are scoped automatically"
-                    )
-            if _nonempty_str(package):
-                for name in expects:
-                    if normalise_package(name) == package:
-                        errors.append(
-                            "`expects-sibling` must not list the fork itself "
-                            f"({package})"
-                        )
-
     return errors
 
 
@@ -135,11 +110,6 @@ def normalise_package(name: str) -> str:
     """`ieee754` and `@unabandoned/ieee754` both mean the same fork."""
     name = name.strip()
     return name if name.startswith("@") else SCOPE + name
-
-
-def expected_siblings(data: dict) -> list[str]:
-    """The fully-scoped `expects-sibling` set for a fork, sorted."""
-    return sorted({normalise_package(n) for n in (data.get("expects-sibling") or [])})
 
 
 def load(text: str) -> Any:
