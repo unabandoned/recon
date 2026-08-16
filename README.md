@@ -23,7 +23,7 @@ excluded repository cannot become nothing at all. See
 
 ```bash
 pip install pyyaml                    # the only dependency; everything else is stdlib
-python -m unittest discover -s tests -t .   # 127 tests, fully offline
+python -m unittest discover -s tests -t .   # the whole suite, fully offline
 GITHUB_TOKEN=… python -m recon.cli build    # writes ./public and a snapshot
 python -m recon.cli verify                  # non-zero if a check failed
 ```
