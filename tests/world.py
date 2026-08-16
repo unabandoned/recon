@@ -5,6 +5,10 @@
     @unabandoned/crypto-browserify    pulls hash-base -> readable-stream
     @unabandoned/buffer               wires @unabandoned/ieee754 via an ALIAS,
                                       so the scope lives in the value
+    @unabandoned/detective            reached by browserify ONLY through the
+                                      third-party `module-deps` — so it is not
+                                      browserify's declared edge, and M2 must
+                                      not treat it as one
     @unabandoned/ieee754              a clean leaf
     browserify-sign                   a repo with no metadata — must appear as a
                                       counted exclusion, not an absence
@@ -56,6 +60,8 @@ REPOS = [
      "html_url": f"https://github.com/{ORG}/buffer"},
     {"name": "ieee754", "default_branch": "master", "archived": False,
      "html_url": f"https://github.com/{ORG}/ieee754"},
+    {"name": "detective", "default_branch": "master", "archived": False,
+     "html_url": f"https://github.com/{ORG}/detective"},
     {"name": "browserify-sign", "default_branch": "master", "archived": False,
      "html_url": f"https://github.com/{ORG}/browserify-sign"},
     {"name": "infra", "default_branch": "main", "archived": False,
@@ -72,11 +78,15 @@ METADATA = {
                               "crypto-browserify/crypto-browserify"),
     "buffer": _yml("@unabandoned/buffer", "feross/buffer", expects=["ieee754"]),
     "ieee754": _yml("@unabandoned/ieee754", "feross/ieee754"),
+    "detective": _yml("@unabandoned/detective", "browserify/detective"),
 }
 
 MANIFESTS = {
     "browserify": {"name": "@unabandoned/browserify", "dependencies": {
         "crypto-browserify": "npm:@unabandoned/crypto-browserify@^3",
+        # Third-party, and it is what drags @unabandoned/detective in. Browserify
+        # declares no edge to detective, so M2 must not expect one.
+        "module-deps": "^6.2.3",
     }},
     "crypto-browserify": {"name": "@unabandoned/crypto-browserify", "dependencies": {
         "hash-base": "^3.0.0", "through2": "^2.0.0",
@@ -85,6 +95,7 @@ MANIFESTS = {
         "ieee754": "npm:@unabandoned/ieee754@^1",   # scope in the VALUE
     }},
     "ieee754": {"name": "@unabandoned/ieee754", "dependencies": {}},
+    "detective": {"name": "@unabandoned/detective", "dependencies": {}},
 }
 
 LOCKS = {
@@ -92,7 +103,13 @@ LOCKS = {
         "": {"dependencies": {"@unabandoned/browserify": "^17"}},
         "node_modules/@unabandoned/browserify": {
             "version": "17.0.1",
-            "dependencies": {"crypto-browserify": "npm:@unabandoned/crypto-browserify@^3"}},
+            "dependencies": {"crypto-browserify": "npm:@unabandoned/crypto-browserify@^3",
+                             "module-deps": "^6.2.3"}},
+        "node_modules/module-deps": {
+            "version": "6.2.3",
+            "dependencies": {"detective": "npm:@unabandoned/detective@^5"}},
+        "node_modules/detective": {
+            "name": "@unabandoned/detective", "version": "5.2.2"},
         "node_modules/crypto-browserify": {
             "name": "@unabandoned/crypto-browserify", "version": "3.12.1",
             "dependencies": {"hash-base": "^3.0.0", "through2": "^2.0.0"}},
@@ -129,15 +146,22 @@ LOCKS = {
         "": {"dependencies": {"@unabandoned/ieee754": "^1"}},
         "node_modules/@unabandoned/ieee754": {"version": "1.2.2"},
     }},
+    "@unabandoned/detective": {"packages": {
+        "": {"dependencies": {"@unabandoned/detective": "^5"}},
+        "node_modules/@unabandoned/detective": {"version": "5.2.2"},
+    }},
 }
 
 # name -> (latest version, publish date, {version: [deps]})
 PACKUMENTS = {
-    "@unabandoned/browserify": ("17.0.1", "2026-07-01", {"17.0.1": ["crypto-browserify"]}),
+    "@unabandoned/browserify": ("17.0.1", "2026-07-01",
+                               {"17.0.1": ["crypto-browserify", "module-deps"]}),
     "@unabandoned/crypto-browserify": ("3.12.1", "2026-07-02",
                                        {"3.12.1": ["hash-base", "through2"]}),
     "@unabandoned/buffer": ("6.0.4", "2026-06-20", {"6.0.4": ["ieee754"]}),
     "@unabandoned/ieee754": ("1.2.2", "2026-06-20", {"1.2.2": []}),
+    "@unabandoned/detective": ("5.2.2", "2026-07-05", {"5.2.2": []}),
+    "module-deps": ("6.2.3", "2019-05-01", {"6.2.3": ["detective"]}),
     "hash-base": ("3.1.0", "2020-01-20", {"3.1.0": ["readable-stream"]}),
     "readable-stream": ("3.6.2", "2022-06-01", {"3.6.2": ["inherits"]}),
     "inherits": ("2.0.4", "2019-01-01", {"2.0.4": []}),

@@ -53,9 +53,11 @@ neither npm nor a network.
   identical by construction; the check exists to catch the regression where someone
   reaches around the parameter list.
 
-## Two bugs this found while being written
+## Bugs this has found
 
-Worth recording, because both are the exact class the design predicts.
+Worth recording. The first two are the exact class the design predicts. The third
+is a class the design did *not* anticipate, and it is arguably the more dangerous
+one, because its failure mode is a check that cries wolf.
 
 **The coverage ledger under-counted its own fetches.** `coverage.fetches` was
 snapshotted from `session.summary()` before `_fork_row` ran, and `_fork_row` still
@@ -71,7 +73,34 @@ analysis was wrong and nothing errored. Caught by running the real resolver and
 noticing the queue had exactly one entry. Now `spec_name()` handles it and
 `tests/smoke.py` asserts the root every run.
 
-Neither would have been caught by looking at output.
+**Reader B was asking a different question from Reader A.** The first real build
+failed `m2.scope-edges-agree` on 4 forks. It was right that they disagreed and
+wrong about what that meant: `manifest_scope_edges` reads the fork's *declared*
+dependencies, while `Tree.scope_edges` collected every `@unabandoned/*` package
+anywhere in the resolved subtree. A fork that reaches a sibling through a
+third-party intermediary — `browserify → module-deps → @unabandoned/detective` —
+would fail the check forever, and no wiring change could ever satisfy it.
+
+Reader B is now declared-only, resolved through the lockfile so npm's alias
+handling still does the work; the transitive set survives as
+`Tree.scope_reachable` and is reported on the fork row, because "which of our own
+packages end up under this one" is worth knowing — it just isn't an edge.
+
+The first two bugs would not have been caught by looking at output. The third
+*was* output, and it was still wrong: a check firing is evidence that the check
+and the world disagree, not evidence about which one is at fault. The fixture
+world now contains a sibling reached through an intermediary, so the old
+semantics fail four tests including `test_a_clean_build_passes_every_check`.
+
+**One check was removed rather than fixed.** `m4.zero-dep-sanity` warned when a
+package's resolved version declared no dependencies while `latest` declared some.
+On the first real build it fired on `buffer-xor@1.0.3` — no dependencies, against
+a 2.x `latest` that has them. A package gaining dependencies in a later major is
+ordinary, so the check compared two different versions' dependency lists and
+called routine difference suspicious. `m2.dependency_counts_agree` is the
+well-formed version of the same concern: same `(name, version)`, two independent
+artifacts, hard failure. A check that fires on normal reality trains people to
+skim past the panel, which costs more than it can catch.
 
 ## What is not built
 
@@ -95,6 +124,10 @@ Neither would have been caught by looking at output.
 - `tests/world.py` is a fixture org built to contain every shape that has bitten us:
   an alias-wired edge, a repo with no metadata, a packument that 404s, and a package
   reached only through one of our own forks. Add to it rather than mocking in-place.
+- When an integrity check fails, suspect the check first. Two of the three defects
+  above were in the checking machinery, not the thing being checked. The question
+  to ask is "are both derivations answering the same question?" before "which fork
+  is misconfigured?"
 - The queue's scoring function is deliberately simple and legible. If it grows, keep
   every input visible next to the rank — a ranking nobody can check is exactly the
   kind of confident number this repository exists to distrust.

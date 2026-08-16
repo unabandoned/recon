@@ -125,8 +125,13 @@ Derive fork→fork edges two ways from two different artifacts:
 
 - **Reader A (manifest):** scan `package.json` dependency *values* for `npm:@unabandoned/...`
   alias syntax (and plain `@unabandoned/` keys, for completeness).
-- **Reader B (lockfile):** after resolution, scan the lockfile for any node whose resolved
-  package name is in the `@unabandoned` scope.
+- **Reader B (lockfile):** after resolution, resolve the fork's own declared dependencies
+  through the lockfile and keep those landing in the `@unabandoned` scope.
+
+  The word *declared* is load-bearing and was learned the hard way: the first real build
+  had Reader B collecting every sibling anywhere in the subtree, which is a different
+  question from the one Reader A asks and failed the build on 4 correctly-wired forks.
+  Two derivations are only comparable when they answer the same question.
 
 Assert the edge sets agree. Disagreement fails the build with both sets printed.
 
@@ -176,8 +181,12 @@ Cheap assertions about what the world cannot look like:
   is precisely 1c.
 - Conservation: `repos_discovered = repos_included + repos_excluded`, every exclusion carrying a
   reason enum; totals in the UI must reconcile against this or the build fails.
-- A package whose packument shows dependencies for its latest version but whose recorded version
-  shows zero gets flagged for review (soft check — warn, don't fail).
+- ~~A package whose packument shows dependencies for its latest version but whose recorded
+  version shows zero gets flagged for review.~~ **Dropped after the first real build.** It
+  compares two *different* versions' dependency lists, and a package gaining dependencies in
+  a later major is ordinary, so it warns forever without discriminating.
+  `m2.dependency_counts_agree` covers the real concern precisely — same `(name, version)`,
+  two artifacts, hard failure.
 
 ### M5. Differential check against the previous snapshot
 
