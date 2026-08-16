@@ -26,7 +26,8 @@ pip install pyyaml                    # the only dependency; everything else is 
 python -m unittest discover -s tests -t .   # the whole suite, fully offline
 GITHUB_TOKEN=… python -m recon.cli build    # writes ./public and a snapshot
 python -m recon.cli verify                  # non-zero if a check failed
-python -m recon.cli intake factor-bundle@2.0.0   # audit a tree we do NOT own
+python -m recon.cli intake factor-bundle@2.0.0   # audit a tree we do NOT own,
+                                            # incl. what adopting it would cost + an onboarding prompt
 python -m recon.cli compare CorentinTh/it-tools TheTechNetwork/it-tools  # diff two repos
 # or paste both into the Intake tab and get the declared-dependency diff in the page
 ```

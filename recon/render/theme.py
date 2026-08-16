@@ -163,6 +163,14 @@ table.t tr.emergency td { background: var(--bad-bg); }
 .q { border: 1px solid var(--border); border-radius: 12px; margin: 0 0 11px;
   background: var(--panel); overflow: hidden; }
 .q.em { border-color: var(--bad); }
+/* ---- launch button + prompt block ---- */
+.btn { display: inline-block; font-size: 13.5px; font-weight: 600; padding: 9px 18px;
+  border-radius: 9px; background: var(--accent); color: #fff; }
+.btn:hover { filter: brightness(1.08); text-decoration: none; }
+pre.prompt { background: var(--panel-2); border: 1px solid var(--border-muted);
+  border-radius: 10px; padding: 14px; overflow-x: auto; font-size: 12.5px;
+  line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 0; }
+
 /* ---- the compare form ---- */
 .cmp { display: grid; gap: 10px; grid-template-columns: 1fr 1fr auto;
   align-items: end; margin: 4px 0 6px; }

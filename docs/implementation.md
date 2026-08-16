@@ -19,6 +19,8 @@ What is built, where it lives, and what is deliberately not built yet. The desig
 | `recon/compare.py` | Diff two repositories — added/dropped/replaced/bumped/pinned |
 | `recon/render/compare.js` | The same diff, in the browser. Cross-checked against the Python |
 | `recon/intake.py` | §7b: audit a foreign tree, join it against the fork inventory |
+| `recon/scenario.py` | Adoption cost: what owning a package commits us to, and the prompt |
+| `recon/render/llms.py` | `llms.txt` — the site described for an agent, derived from the build |
 | `recon/integrity.py` | Every check, as a value rather than an exception |
 | `recon/observation.py` | The pipeline. `build_core` cannot see history; `finish` adds integrity |
 | `recon/snapshots.py` | Write, diff, trend, merge attribution |
@@ -339,6 +341,81 @@ Two bugs came out of driving the real page rather than reasoning about it.
 validation refused valid input before any of ours ran. And the headline said
 "0 package(s) in the resolved tree" when no lockfile had been read — a
 measurement-shaped sentence for something never measured.
+
+## The scenario: cost, not benefit
+
+The work queue ranks by **blast radius** — which single change removes the most
+rot. `recon/scenario.py` asks the opposite-shaped question, the one you ask
+*before* committing rather than after: **if we adopt this, what else do we now
+own?**
+
+They run on the same graph and can point in opposite directions, which is the
+whole reason it earns a module. A large tree can carry a small obligation,
+because most of what rots beneath it may already rot beneath something we
+maintain. `browserify-sign` is the case that makes the point: 56 packages
+resolved, 27 of them time bombs, and **zero** new forks required — 10 of its
+interventions are already ranked in our own queue, 2 are already published by
+us. The raw time-bomb count says "expensive"; the obligation surface says
+"nearly free", and the second one is the number the decision actually turns on.
+
+It re-derives nothing. It reads an `intake` report — same resolver, classifier
+and coverage join — reframes it as a surface, and writes the onboarding prompt
+plus a `claude-cli://open?repo=…&q=…` deep link. The link fills a local prompt
+box and sends nothing; `claude-cli://` is stripped by GitHub-rendered Markdown
+but works from an HTML page, which is what the report is.
+
+Two things this got right only because they were checked:
+
+**The prompt claimed adoption was free when nothing had been checked.** With no
+fork inventory every plan entry is unclassified, so "no entries need a new fork"
+means *we could not tell*, not *there are none* — and the prompt said the second.
+Same shape as reporting `0 covered` for an unreadable inventory, and worse than
+on a page, because a prompt is a thing someone acts on. Caught by an existing
+intake rendering test rather than by design, which is the argument for keeping
+assertions about phrasing and not just about numbers.
+
+**The wiring list was drawn from the plan, and the plan is not the right set.**
+The plan ranks actionable *dominators*, so a sibling we publish is absent from it
+whenever it is healthy (nothing to fix) or dominated by something else (fixing
+that clears it). Both are still worth aliasing — otherwise the fork keeps pulling
+a package from upstream while we maintain our own copy of it. Wiring now comes
+from every covered package in the tree, which immediately surfaced
+`string_decoder` on the `browserify-sign` scenario; the plan-derived list had
+missed it.
+
+## Hosting the instructions instead of squeezing them
+
+The `claude-cli://` handler caps its prompt at 5,000 characters. The obvious
+response is to shorten the prompt; the better one is to stop putting it in the
+URL. The link now *names* the instructions — they are published as `onboard.md`
+beside the report, and `llms.txt` at the site root maps the whole site for an
+agent that arrives without one.
+
+That removes the ceiling and buys three things a URL-embedded prompt cannot
+have: the text is versioned with the build, it can be read and reviewed before
+anyone clicks, and correcting it reaches every link already pasted somewhere
+rather than only the ones generated afterwards.
+
+Two judgements worth keeping:
+
+**The pointer still says what the work is.** It would be shorter to emit only
+"read this URL", and worse. A prompt whose entire content is a fetch has nothing
+to fall back on when the fetch fails, and the human the deep link asks to review
+it cannot tell what they would be agreeing to. So the shape of the work, the
+repositories to attach, the actual new obligations and the two non-negotiable
+rules travel in the prompt itself; the detail lives behind the link.
+
+**"Fetch this URL and follow it" is the shape of a prompt injection.** It is
+safe here for reasons that are specific rather than general — the URL is this
+org's own generated site, the deep link fills a prompt box without sending it,
+and a human reads it before pressing Enter — so `llms.txt` states those reasons
+in the file, for the benefit of an agent that arrives at it some other way.
+
+The prompt also contradicted itself on first read: the context line counted the
+*plan's* alias entries while the wiring step counted the *wiring set*, so it
+said "1 are already published" above a step listing two. Both now count the same
+set, and a test pins it, because a self-inconsistent instruction sheet is worse
+than a terse one.
 
 ## Notes for whoever picks this up
 
