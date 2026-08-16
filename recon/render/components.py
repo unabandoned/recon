@@ -100,14 +100,33 @@ def trail(root: str, via: Iterable[str], leaf: str) -> str:
     hops = [f'<span class="root">{e(root)}</span>']
     hops += [f"<span>{e(v)}</span>" for v in (via or [])]
     hops.append(f'<span class="leaf">{e(leaf)}</span>')
-    return '<span class="trail">' + "<i>→</i>".join(hops) + "</span>"
+    # Plain text with a hairline separator. These were filled pills, which put
+    # ~440 grey blocks on the packages page and made the least important column
+    # the loudest thing on it.
+    return '<span class="trail">' + "<i>›</i>".join(hops) + "</span>"
 
 
-def table(headers: list[str], rows: list[str], *, empty: str = "Nothing to show.") -> str:
+def table(headers: list[str], rows: list[str], *, empty: str = "Nothing to show.",
+          columns: int | None = None, widths: list[str] | None = None) -> str:
+    """`columns` pads the header row when body rows span more cells than headers —
+    a grouped table has a full-width band the headers do not describe.
+
+    `widths` switches the table to fixed layout and makes the column widths
+    authoritative. Auto layout hands surplus width to whichever column has the
+    longest content, which is how a column of empty cells kept 185px while the
+    one carrying the dependency paths was squeezed into three wrapped lines.
+    """
     if not rows:
         return f'<p class="empty">{e(empty)}</p>'
     head = "".join(f"<th>{h}</th>" for h in headers)
-    return ('<div class="scroll"><table class="t"><thead><tr>' + head
+    if columns and columns > len(headers):
+        head += "<th></th>" * (columns - len(headers))
+    cols = ""
+    cls = "t"
+    if widths:
+        cols = "<colgroup>" + "".join(f'<col style="width:{w}">' for w in widths) + "</colgroup>"
+        cls = "t fixed"
+    return (f'<div class="scroll"><table class="{cls}">{cols}<thead><tr>' + head
             + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>")
 
 
