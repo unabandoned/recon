@@ -126,14 +126,15 @@ table.t tr.group-head b { font-variant-numeric: tabular-nums; margin: 0 8px 0 10
   font-size: 13.5px; }
 table.t tr.group-head span { color: var(--fg-muted); font-size: 12.5px; font-weight: 400; }
 table.t thead th { font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
-  color: var(--fg-muted); background: var(--panel-2); position: sticky; top: 0; }
+  color: var(--fg-muted); background: var(--panel-2); position: sticky; top: 0;
+  white-space: normal; vertical-align: bottom; }
 table.t tbody tr:last-child td { border-bottom: none; }
 table.t td.num, table.t th.num { text-align: right; font-variant-numeric: tabular-nums;
   width: 1%; white-space: nowrap; }
 table.t td.tight { width: 1%; white-space: nowrap; }
 table.t td.dim { color: var(--fg-muted); }
 table.t td.wrap { white-space: normal; min-width: 220px; }
-table.t.fixed { table-layout: fixed; }
+table.t.fixed { table-layout: fixed; min-width: 820px; }
 table.t td.path { white-space: normal; overflow-wrap: anywhere; }
 table.t.fixed td.mono { overflow-wrap: anywhere; white-space: normal; }
 table.t td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

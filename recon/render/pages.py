@@ -299,7 +299,7 @@ def packages(obs: dict) -> str:
             ["Package", "Own deps", "Forks", "Last release",
              "Advisories", "Shortest path in"],
             rows, empty="No packages resolved.", columns=6,
-            widths=["23%", "7%", "6%", "11%", "10%", "43%"],
+            widths=["23%", "9%", "7%", "12%", "10%", "39%"],
         ),
     )
 
