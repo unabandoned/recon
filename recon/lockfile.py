@@ -33,6 +33,10 @@ except ModuleNotFoundError:  # pragma: no cover - surfaced as a clear message
 
 NPM = "npm"
 PNPM = "pnpm"
+#: Not a lockfile at all — a manifest read on its own. It carries what a project
+#: *declares* (names, specifiers, aliases) but not what it resolved to, so a
+#: comparison built from it must not imply the second.
+MANIFEST = "manifest"
 
 #: Filename -> tool. Order matters: the first one a repo has is the one it uses.
 KNOWN = [
@@ -134,6 +138,36 @@ def _alias_target(specifier: str) -> str:
 
 def clean_version(version: str) -> str:
     return _PEER.sub("", (version or "").strip())
+
+
+def read_manifest(text: str) -> Fact:
+    """Read a `package.json` as a `Lockfile` with declarations but no resolutions.
+
+    A manifest is the only artifact every project has — some repos commit no
+    lockfile, and the browser-side comparison reads manifests because they are
+    JSON in every ecosystem while pnpm and yarn lockfiles are not. It answers
+    what a project *declares*: names, specifiers, aliases, and therefore adds,
+    drops, replacements and pinning. It cannot answer what got installed, so
+    `version` is empty everywhere and `resolved` is empty — which makes the
+    version-delta and tree sections of a comparison come out empty rather than
+    wrong.
+    """
+    try:
+        doc = json.loads(text)
+        if not isinstance(doc, dict):
+            raise ValueError("package.json is not an object")
+    except (ValueError, TypeError) as exc:
+        return Fact.failed(f"{type(exc).__name__}: {exc}"[:200], source="package.json")
+
+    direct: dict[str, Dep] = {}
+    for block, dev in (("dependencies", False), ("devDependencies", True)):
+        entries = doc.get(block)
+        if not isinstance(entries, dict):
+            continue
+        for name, spec in entries.items():
+            direct[str(name)] = Dep(str(name), str(spec), "", dev,
+                                    _alias_target(str(spec)))
+    return Fact.ok(Lockfile(MANIFEST, "", direct, {}), source="package.json")
 
 
 def read(text: str, filename: str) -> Fact:
@@ -245,6 +279,10 @@ def workspace_members(text: str) -> list[str]:
 RAW = "https://raw.githubusercontent.com"
 #: What GitHub allows in an owner or repository name.
 _NAME = re.compile(r"[A-Za-z0-9._-]+")
+#: A branch, tag or SHA. Slashes are legal in refs (`feature/x`), so `..` has to
+#: be excluded by name — otherwise `owner/repo@../..` walks the raw URL to a path
+#: the caller never asked for.
+_REF = re.compile(r"[A-Za-z0-9._/-]+")
 DEFAULT_REFS = ("main", "master")
 
 
@@ -284,6 +322,10 @@ def parse_repo(value: str) -> tuple[str, str, str | None]:
             f"{value!r} does not name a GitHub repository "
             f"(read owner={owner!r}, repo={repo!r})"
         )
+    if ref is not None and (
+        not _REF.fullmatch(ref) or ".." in ref.split("/")
+    ):
+        raise ValueError(f"{ref!r} is not a usable git ref")
     return owner, repo, ref
 
 

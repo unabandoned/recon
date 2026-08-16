@@ -16,7 +16,8 @@ What is built, where it lives, and what is deliberately not built yet. The desig
 | `recon/graph.py` | Dominators, shadowing, blast radius, the ranked queue |
 | `recon/osv.py` | Advisory batch join and the emergency tier |
 | `recon/lockfile.py` | Read a committed npm/pnpm lockfile. Parsing, never resolving |
-| `recon/compare.py` | Diff two repositories' lockfiles — added/dropped/replaced/bumped/pinned |
+| `recon/compare.py` | Diff two repositories — added/dropped/replaced/bumped/pinned |
+| `recon/render/compare.js` | The same diff, in the browser. Cross-checked against the Python |
 | `recon/intake.py` | §7b: audit a foreign tree, join it against the fork inventory |
 | `recon/integrity.py` | Every check, as a value rather than an exception |
 | `recon/observation.py` | The pipeline. `build_core` cannot see history; `finish` adds integrity |
@@ -291,6 +292,53 @@ seen from outside, and reporting it as an unrelated add and drop buries the most
 interesting thing a fork can do. Matched on the unscoped basename — the same
 join `intake` uses for coverage, so the two agree on what "the same package
 under a different owner" means.
+
+## The one second implementation, and what makes it allowed
+
+The intake page compares two pasted repositories **in the browser**, with no
+trigger, no token and no round trip. Everything it reads is public and
+CORS-open, so a static page can do it — which matters because
+`workflow_dispatch` needs *write access*, and there is no cookie-authenticated,
+CORS-open GitHub trigger. Every "logged in, no token" path on GitHub collapses
+to creating content (an issue, a PR, a file), and none of those belong in a
+repository whose own dashboard counts issues.
+
+So the page does not request work. It does the work, because the work is small
+once you stop trying to resolve anything.
+
+**It reads `package.json`, not the lockfile.** A manifest is JSON in every
+ecosystem, while pnpm and yarn lockfiles are YAML and bun's is binary — so this
+needs no parser, no vendored dependency and no build step, and it works for
+repositories that commit no lockfile at all. It answers what each project
+*declares*: adds, drops, replacements, pinning. It cannot answer what got
+installed, so those fields come out empty rather than guessed and the page says
+so in as many words. On `it-tools` the browser reports 24 added / 19 dropped /
+1 replaced / 87 pinning changes — identical to what the CLI derives from the
+lockfiles, which is a pleasant confirmation rather than a guarantee.
+
+**`compare.js` is a second implementation of `compare.py`.** That is normally
+the defect this repository exists to catch. It is allowed on exactly one
+condition, enforced by `tests/test_crosscheck.py` and its own CI job: the two
+must produce **identical JSON** for the same inputs, across a fixture set built
+from the shapes that behave differently. A second implementation proven to
+agree is a cross-check — M2 applied to recon's own rendering. One merely
+believed to agree is the bug factory. Change either side and the test fails
+until you change both.
+
+The site was strictly script-free before this, guarded by a test asserting no
+page contains `<script`. That guard's stated purpose was catching unescaped
+interpolation, with the absence of script as a cheap proxy. It is now narrowed
+rather than dropped: every other page must still be script-free, the two script
+blocks that do ship are fixed program text with no observation data
+interpolated into them, no page may ever load script from another host, and a
+separate test asserts that every attacker-supplied value — package names come
+from arbitrary repositories — goes through the escaper.
+
+Two bugs came out of driving the real page rather than reasoning about it.
+`type="url"` on the inputs made the browser reject `owner/repo`, so native
+validation refused valid input before any of ours ran. And the headline said
+"0 package(s) in the resolved tree" when no lockfile had been read — a
+measurement-shaped sentence for something never measured.
 
 ## Notes for whoever picks this up
 

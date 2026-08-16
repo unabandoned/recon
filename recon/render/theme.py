@@ -163,6 +163,23 @@ table.t tr.emergency td { background: var(--bad-bg); }
 .q { border: 1px solid var(--border); border-radius: 12px; margin: 0 0 11px;
   background: var(--panel); overflow: hidden; }
 .q.em { border-color: var(--bad); }
+/* ---- the compare form ---- */
+.cmp { display: grid; gap: 10px; grid-template-columns: 1fr 1fr auto;
+  align-items: end; margin: 4px 0 6px; }
+.cmp label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px;
+  color: var(--fg-muted); font-weight: 600; min-width: 0; }
+.cmp input { font: inherit; font-size: 13.5px; padding: 9px 11px; min-width: 0;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--panel-2); color: var(--fg); }
+.cmp input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.cmp button { font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  padding: 10px 20px; border-radius: 9px; border: 1px solid transparent;
+  background: var(--accent); color: #fff; min-height: 40px; }
+.cmp button:hover { filter: brightness(1.08); }
+.cmp-out:not(:empty) { margin-top: 14px; }
+.cmp-out .panel { margin-bottom: 12px; }
+.cmp-out .tiles { margin-bottom: 12px; }
+
 /* A long table inside a panel: collapsed by default, with its count in the
    summary so the page stays scannable without hiding that the rows exist. */
 .fold > summary { cursor: pointer; padding: 4px 0 10px; font-weight: 600;
@@ -235,6 +252,9 @@ MOBILE = """
   .q .why { flex-basis: 100%; }
   .q .body { padding: 0 13px 13px; }
   .opts { grid-template-columns: 1fr; }
+  /* The button needs the full width once the fields stack, or it lands in a
+     column of its own beside a wrapped label. */
+  .cmp { grid-template-columns: 1fr; }
   .grid2 { grid-template-columns: 1fr; }
   .banner { padding: 12px 13px; }
 }

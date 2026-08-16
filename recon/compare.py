@@ -221,12 +221,16 @@ def headline(diff: dict) -> str:
     if t["pinning"]:
         bits.append(f"{t['pinning']} pinning change(s)")
     if not bits:
-        return "The two manifests declare identical direct dependencies."
+        return "The two sides declare identical direct dependencies."
+    lead = "Against the baseline, the subject has " + ", ".join(bits)
+    if not (t["tree_baseline"] or t["tree_subject"]):
+        # No lockfile was read, so there is no tree to report. Saying
+        # "0 packages in the resolved tree" would read as a measurement.
+        return lead + "."
     delta = t["tree_subject"] - t["tree_baseline"]
     sign = "+" if delta > 0 else ""
     return (
-        "Against the baseline, the subject has "
-        + ", ".join(bits)
+        lead
         + f" — and {sign}{delta} package(s) in the resolved tree "
           f"({t['tree_baseline']} → {t['tree_subject']})."
     )

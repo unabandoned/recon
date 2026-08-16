@@ -38,6 +38,33 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -t . -v
 
+  crosscheck:
+    # `recon/render/compare.js` is a second implementation of `recon.compare`,
+    # which this repository normally treats as a defect. It is allowed on one
+    # condition: that it provably agrees with the Python. The test skips when
+    # node is absent so the suite still runs anywhere — this job is what makes
+    # sure "skipped" never becomes the answer in CI.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install PyYAML
+        run: python -m pip install --quiet pyyaml
+      - name: The browser comparison must agree with the Python one
+        run: |
+          python - <<'PY'
+          import shutil, sys
+          if not shutil.which("node"):
+              sys.exit("node is required for this job")
+          PY
+          python -m unittest tests.test_crosscheck -v
+
   smoke:
     # Proves the real resolver still agrees with the real registry: resolve a
     # published tree with npm and cross-check every package's declared
