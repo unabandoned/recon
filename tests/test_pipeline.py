@@ -514,3 +514,41 @@ class FixtureFile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LlmsTxt(unittest.TestCase):
+    """The site described for an agent, derived rather than hand-written."""
+
+    def setUp(self):
+        from recon.render import llms
+        self.w, self.inputs, self.core = build()
+        self.obs = finished(self.core, self.inputs)
+        self.txt = llms.render(self.obs)
+
+    def test_it_points_at_the_data_rather_than_the_pages(self):
+        self.assertIn("observation.json", self.txt)
+        self.assertIn("rather than scraping the pages", self.txt)
+
+    def test_every_rendered_page_is_listed(self):
+        from recon.render.components import PAGES
+        for href, _label in PAGES:
+            self.assertIn(href, self.txt, href)
+
+    def test_the_counts_come_from_the_observation(self):
+        t = self.obs["totals"]
+        self.assertIn(f"{t['time_bomb']} **time bombs**", self.txt)
+        self.assertIn(f"{t['unknown']} unknown", self.txt)
+
+    def test_it_states_the_builds_own_integrity_verdict(self):
+        """An agent reading numbers should know whether they are trustworthy."""
+        self.assertIn(self.obs["integrity"]["status"], self.txt)
+
+    def test_it_carries_the_rules_an_agent_would_otherwise_get_wrong(self):
+        for rule in ("forkProcessing", "id-token: write", "npm trust",
+                     "**not** a health signal"):
+            self.assertIn(rule, self.txt)
+
+    def test_it_says_where_it_came_from(self):
+        """It asks an agent to trust hosted instructions, so it says whose."""
+        self.assertIn("generated", self.txt.lower())
+        self.assertIn("prompt box", self.txt)

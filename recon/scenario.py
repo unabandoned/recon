@@ -24,16 +24,25 @@ import urllib.parse
 
 from . import intake
 
-#: `claude-cli://open?q=` is capped by the handler. Exceeding it does not
-#: truncate cleanly, so the compact prompt is built to fit and the full one
-#: stays on the page.
+#: `claude-cli://open?q=` is capped by the handler, and exceeding it does not
+#: truncate cleanly. Rather than squeezing the instructions to fit, the link
+#: *names* them: the full text is published as `onboard.md` and the prompt is a
+#: short pointer at it. That removes the ceiling and buys three things a
+#: URL-embedded prompt cannot have — the text is versioned with the build, it
+#: can be read before anyone clicks, and correcting it does not invalidate links
+#: already pasted elsewhere. The limit is still checked, because a pointer that
+#: silently exceeded it would fail the same way.
 DEEP_LINK_LIMIT = 5000
+
+#: Where the published instructions live. Kept in step with how the dashboard
+#: publishes reports (`cp -r .data/reports public/intake`).
+SITE = "https://unabandoned.github.io/recon"
 
 #: Repositories any fork onboarding needs open, whatever the package is.
 CORE_REPOS = ("unabandoned/.github", "unabandoned/renovate-config")
 
 
-def build(report: dict, *, org: str = "unabandoned") -> dict:
+def build(report: dict, *, org: str = "unabandoned", site: str = SITE) -> dict:
     """Turn an intake report into an adoption scenario. Pure."""
     meta = report.get("meta") or {}
     package = meta.get("package") or meta.get("spec") or ""
@@ -80,7 +89,8 @@ def build(report: dict, *, org: str = "unabandoned") -> dict:
 
     attach = _attach_list(org, package, aliases, report)
     full_prompt = _prompt(org, package, report, by_action, wire, attach, known)
-    compact = _compact_prompt(org, package, by_action, wire, known)
+    onboard_url = _onboard_url(site, meta.get("spec") or package)
+    compact = _compact_prompt(org, package, by_action, wire, known, onboard_url, attach)
 
     return {
         "package": package,
@@ -97,6 +107,7 @@ def build(report: dict, *, org: str = "unabandoned") -> dict:
         "attach": attach,
         "prompt": full_prompt,
         "compact_prompt": compact,
+        "onboard_url": onboard_url,
         "deep_link": deep_link(org, package, compact),
         "coverage_known": known,
     }
@@ -130,10 +141,12 @@ def _prompt(org, package, report, by_action, wire, attach, known) -> str:
         f"{report['totals'].get('time_bomb', 0)} of them abandoned-and-carrying-dependencies.",
     ]
     if known:
+        n_wire = len(wire)
         lines.append(
             f"- {len(by_action[intake.FORK])} of those need a NEW fork; "
-            f"{len(by_action[intake.QUEUED])} are already in our work queue; "
-            f"{len(by_action[intake.ALIAS])} are already published under {scope[:len(scope)-len(package)]}*."
+            f"{len(by_action[intake.QUEUED])} are already ranked in our work queue; "
+            f"{n_wire} {'is' if n_wire == 1 else 'are'} already published by us and "
+            f"should be aliased rather than pulled from upstream."
         )
     else:
         lines.append(
@@ -169,10 +182,9 @@ def _prompt(org, package, report, by_action, wire, attach, known) -> str:
         wiring = ", ".join(f"`{r['package']}` -> `{r['fork']}`" for r in wire)
         lines += [
             f"{n}. Wire the siblings we already maintain, as npm aliases in "
-            f"`package.json`: {wiring}. The scope goes in the VALUE, e.g. "
-            f'`"readable-stream": "npm:{org}-scope/readable-stream@^4"` with the real '
-            "scope and a range that matches what that fork actually publishes — check, "
-            "do not guess.",
+            f"`package.json`: {wiring}. The scope goes in the VALUE, not the key — "
+            f'`"readable-stream": "npm:@{org}/readable-stream@^4"` — with a range that '
+            "matches what that fork actually publishes. Check it; do not guess.",
         ]
         n += 1
 
@@ -216,31 +228,106 @@ def _prompt(org, package, report, by_action, wire, attach, known) -> str:
     return "\n".join(lines)
 
 
-def _compact_prompt(org, package, by_action, wire, known) -> str:
-    """What fits in a URL. Names the work; the detail is on the page."""
+def _onboard_url(site: str, spec: str) -> str:
+    """Where the full instructions are published, matching `intake.report_path`."""
+    return f"{site.rstrip('/')}/intake/{spec.replace('/', '%2F')}/onboard.md"
+
+
+def _compact_prompt(org, package, by_action, wire, known, onboard_url, attach) -> str:
+    """A pointer, plus enough to be useful if the fetch fails.
+
+    It would be shorter to say only "read this URL", and worse. A prompt whose
+    entire content is a fetch has nothing to fall back on when the fetch fails,
+    and the reader — who is meant to check it before pressing Enter — cannot
+    tell what they are agreeing to. So the shape of the work and the two rules
+    that are never negotiable travel in the prompt itself; the detail is behind
+    the link.
+    """
     bits = [
-        f"Onboard the forked `{org}/{package}` into the {org} program: add "
-        f"`.unabandoned.yml` from {org}/.github/templates, add `renovate.json` extending "
-        f"`github>{org}/renovate-config` with `forkProcessing: enabled`, and add the thin "
-        f"workflow callers for {org}/.github's reusable-*.yml."
+        f"Onboard the forked `{org}/{package}` into the {org} maintained-fork program.",
+        f"Read {onboard_url} first and follow it — it is this org's own generated "
+        f"instructions, and it carries the full checklist and the current audit.",
+        "Attach these repositories: " + ", ".join(attach) + ".",
     ]
     if wire:
         bits.append(
-            "Wire these siblings we already publish as npm aliases (scope goes in the "
-            "value): " + ", ".join(f"{r['package']} -> {r['fork']}" for r in wire) + "."
+            "Wire these siblings we already publish as npm aliases (the scope goes in "
+            "the VALUE, not the key): "
+            + ", ".join(f"{r['package']} -> {r['fork']}" for r in wire) + "."
         )
     if by_action[intake.FORK]:
         bits.append(
-            "Not covered by anything we publish, so each needs a fork/replace/vendor "
+            "Nothing we publish covers these, so each needs a fork/replace/vendor "
             "decision: " + ", ".join(s["package"] for s in by_action[intake.FORK]) + "."
         )
     elif known:
         bits.append(
-            "No new forks needed — everything rotten beneath it is already covered or "
-            "already queued."
+            "No new forks needed — everything rotten beneath it is already covered by "
+            "a fork we publish or already ranked in our work queue."
         )
-    bits.append("Read the repo's CLAUDE.md first. Fix forward, do not pin.")
+    else:
+        bits.append(
+            "How many new forks this needs could NOT be determined: the audit could "
+            "not read our fork inventory. Do not treat that as zero."
+        )
+    bits.append("Read the repo's CLAUDE.md before changing anything. Fix forward, do "
+                "not pin.")
     return " ".join(bits)
+
+
+def onboard_document(report: dict, scenario: dict, *, org: str = "unabandoned") -> str:
+    """The hosted instructions the deep link points at.
+
+    Markdown rather than plain text so it reads as a document to a human doing
+    the review the deep link asks for, and carries the audit that produced it —
+    an instruction sheet with no evidence behind it is one nobody can check.
+    """
+    meta = report.get("meta") or {}
+    surf = scenario["surface"]
+    lines = [
+        f"# Onboarding `{org}/{scenario['package']}`",
+        "",
+        f"> Generated by recon from the adoption audit of `{meta.get('spec', '')}` "
+        f"on {meta.get('audited_at', meta.get('audited_date', ''))}. Never "
+        f"hand-edited. If this disagrees with the repository's own `CLAUDE.md`, "
+        f"the repository wins.",
+        "",
+        "## What adopting this commits us to",
+        "",
+        f"- **{surf['packages_owned']}** packages become ours to keep current.",
+        f"- **{surf['time_bombs']}** of them are abandoned *and* carry their own "
+        f"dependencies.",
+        f"- **{surf['inert_left_alone']}** are abandoned with nothing beneath them "
+        f"to rot — leave those alone.",
+    ]
+    if scenario["coverage_known"]:
+        lines += [
+            f"- **{surf['new_forks']}** need a NEW fork; **{surf['already_queued']}** "
+            f"are already ranked in our work queue and are not new obligations.",
+        ]
+    else:
+        lines += [
+            "- How much of this we already cover could **not** be determined for this "
+            "audit — the fork inventory could not be read. Do not read that as zero.",
+        ]
+    lines += ["", "## Steps", "", scenario["prompt"], ""]
+
+    if scenario["new_forks"]:
+        lines += [
+            "## Packages that would need their own fork",
+            "",
+            "Abandoned, carrying dependencies, and not covered by anything we publish.",
+            "",
+        ] + [f"- `{n}`" for n in scenario["new_forks"]] + [""]
+    if scenario["already_queued"]:
+        lines += [
+            "## Already our problem",
+            "",
+            "Ranked in the work queue regardless of this decision, so adopting this "
+            "does not add them.",
+            "",
+        ] + [f"- `{n}`" for n in scenario["already_queued"]] + [""]
+    return "\n".join(lines)
 
 
 def deep_link(org: str, package: str, prompt: str) -> dict:

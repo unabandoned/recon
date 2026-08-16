@@ -716,7 +716,11 @@ def _scenario_panel(report: dict) -> str:
             f'<p><a class="btn" href="{e(link["url"])}">Open in Claude Code →</a></p>'
             '<p class="note">Fills the prompt box in a local session and sends nothing; '
             "you read it and press Enter. Needs Claude Code installed and a clone it has "
-            "seen before, otherwise it opens in your home directory.</p>"
+            "seen before, otherwise it opens in your home directory. The link "
+            "<i>names</i> the instructions rather than carrying them — they are "
+            f'published at <a href="onboard.md"><code>onboard.md</code></a> beside this '
+            "report, which keeps them under review and lets a correction reach every "
+            "link already pasted somewhere.</p>"
         )
     else:
         launch = (

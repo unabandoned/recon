@@ -90,6 +90,17 @@ class Prompt(unittest.TestCase):
         for rule in ("forkProcessing", "id-token: write", "fix forward"):
             self.assertIn(rule, self.s["prompt"].replace("Fix forward", "fix forward"))
 
+    def test_the_prompt_does_not_contradict_itself_about_the_aliases(self):
+        """The context line counted plan entries while the wiring step counted the
+        wiring set, so it said "1 are already published" above a step listing two."""
+        n = len(self.s["aliases"])
+        self.assertIn(f"{n} are already published by us", self.s["prompt"])
+        for a in self.s["aliases"]:
+            self.assertIn(a["fork"], self.s["prompt"])
+
+    def test_the_alias_example_shows_a_real_scope(self):
+        self.assertIn("npm:@unabandoned/", self.s["prompt"])
+
     def test_it_does_not_claim_the_two_human_steps_are_automatable(self):
         self.assertIn("cannot be automated", self.s["prompt"])
         self.assertIn("npm trust", self.s["prompt"])
@@ -166,3 +177,56 @@ class Unresolved(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OnboardDocument(unittest.TestCase):
+    """The hosted instructions the deep link names."""
+
+    def setUp(self):
+        self.report = audit()
+        self.s = scenario.build(self.report)
+        self.doc = scenario.onboard_document(self.report, self.s)
+
+    def test_it_carries_the_audit_that_produced_it(self):
+        """An instruction sheet with no evidence behind it is one nobody can check."""
+        self.assertIn("What adopting this commits us to", self.doc)
+        self.assertIn(str(self.s["surface"]["packages_owned"]), self.doc)
+        self.assertIn("left-pad", self.doc)
+
+    def test_it_defers_to_the_repository(self):
+        self.assertIn("CLAUDE.md", self.doc)
+        self.assertIn("the repository wins", self.doc)
+
+    def test_an_unknown_join_is_not_reported_as_zero_cost(self):
+        report = audit(inventory=intake.Inventory.unavailable("503"))
+        doc = scenario.onboard_document(report, scenario.build(report))
+        self.assertIn("could **not** be determined", doc)
+        self.assertNotIn("need a NEW fork", doc)
+
+
+class HostedInstructions(unittest.TestCase):
+    """The 5,000-character ceiling is removed by naming, not by squeezing."""
+
+    def test_the_prompt_points_at_the_published_document(self):
+        s = scenario.build(audit())
+        self.assertIn(s["onboard_url"], s["compact_prompt"])
+        self.assertTrue(s["onboard_url"].endswith("/onboard.md"))
+
+    def test_the_url_matches_where_the_report_is_published(self):
+        """`intake.report_path` escapes the spec the same way; if these drift the
+        link 404s and the prompt sends someone to a page that is not there."""
+        from recon import intake as intake_mod
+        spec = "@scope/pkg@1.0.0"
+        s = scenario._onboard_url("https://example.test/recon", spec)
+        published = intake_mod.report_path(spec, at="2026-01-01T00:00:00Z")
+        self.assertIn(published.split("/")[1], s)
+
+    def test_the_pointer_still_says_what_the_work_is(self):
+        """A prompt whose entire content is a fetch has nothing to fall back on,
+        and the reader cannot tell what they are agreeing to before pressing Enter."""
+        s = scenario.build(audit())
+        compact = s["compact_prompt"]
+        self.assertIn("Onboard the forked", compact)
+        self.assertIn("Attach these repositories", compact)
+        self.assertIn("Fix forward", compact)
+        self.assertIn("left-pad", compact)      # the actual new obligation

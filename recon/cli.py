@@ -41,12 +41,14 @@ from . import fixtures as fixtures_mod
 from . import intake as intake_mod
 from . import lockfile as lockfile_mod
 from . import observation as obs_mod
+from . import scenario as scenario_mod
 from . import snapshots
 from .classify import DEFAULT_ABANDONMENT_DAYS
 from .github import GitHub
 from .http import Session
 from .integrity import FAIL, WARN
 from .registry import Registry
+from .render import llms as llms_mod
 from .render import pages
 
 
@@ -131,6 +133,10 @@ def build(args) -> int:
         (out / name).write_text(html, encoding="utf-8")
     (out / "observation.json").write_text(obs_mod.canonical(observation), encoding="utf-8")
     (out / "changes.json").write_text(obs_mod.canonical(delta), encoding="utf-8")
+    # The site, written for an agent: a map to `observation.json`, the program's
+    # rules, and where the hosted onboarding instructions live. Derived from the
+    # same observation, so it cannot describe a site that no longer exists.
+    (out / "llms.txt").write_text(llms_mod.render(observation, reports), encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
     if not os.environ.get("RECON_NO_SNAPSHOT"):
@@ -230,6 +236,14 @@ def intake(args) -> int:
     html = pages.intake(report)
     path.with_suffix(".html").write_text(html, encoding="utf-8")
     (path.parent / "index.html").write_text(html, encoding="utf-8")
+
+    # The instructions the deep link names, published beside the report rather
+    # than squeezed into a 5,000-character URL parameter.
+    scen = scenario_mod.build(report)
+    if scen["resolved"]:
+        (path.parent / "onboard.md").write_text(
+            scenario_mod.onboard_document(report, scen), encoding="utf-8"
+        )
 
     print(f"report: {path}")
     _report_intake(report)
