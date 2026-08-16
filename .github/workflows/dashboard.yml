@@ -1,0 +1,155 @@
+name: dashboard
+
+# Builds recon and publishes it to GitHub Pages, then commits the observation as
+# a snapshot on the `data` branch.
+#
+# This repository holds NO secrets. Everything it reads is public: the GitHub
+# API with the run's own repo-scoped token, npm registry metadata, and OSV. The
+# resolver shells out to `npm install --package-lock-only --ignore-scripts`, so
+# npm walks metadata only — no tarball is downloaded and no lifecycle script
+# ever runs. That is the whole reason recon lives here rather than beside the
+# org's publish credentials.
+#
+# `contents: write` is scoped to the build job and used for exactly one thing:
+# appending a snapshot to the `data` branch. Code on `main` is never written by CI.
+#
+# Action refs start at known-good majors; the shared Renovate preset pins them to
+# digests and bumps them on its first run, same as every other repo in the org.
+#
+# One-time human setup: Settings -> Pages -> Build and deployment -> Source:
+# GitHub Actions.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'      # daily, matching the org's release cadence
+  workflow_dispatch:
+    inputs:
+      ack-delta:
+        description: >-
+          Comma-separated aggregates whose large swing is intended and should
+          warn rather than block (e.g. "time_bomb,edges").
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    paths:
+      - 'recon/**'
+      - 'fixtures/**'
+      - '.github/workflows/dashboard.yml'
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write        # only to append a snapshot to the `data` branch
+    outputs:
+      integrity: ${{ steps.build.outputs.integrity }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Snapshot history lives on its own branch so clones of the code stay
+      # light. Only the differ and the trend renderer read it — the current-state
+      # derivation cannot, and `repro.snapshot-independence` verifies that on
+      # every build by re-deriving with this directory masked.
+      - name: Restore snapshot history
+        continue-on-error: true          # the branch does not exist on day one
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: .data
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build
+        id: build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RECON_ORG: ${{ github.repository_owner }}
+          RECON_OUT: public
+          RECON_SNAPSHOTS: .data/snapshots
+          RECON_ACK_DELTA: ${{ inputs.ack-delta }}
+        run: |
+          python -m pip install --quiet pyyaml
+          mkdir -p .data/snapshots
+          python -m recon.cli build
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          print("integrity=" + json.load(open("public/observation.json"))["integrity"]["status"])
+          PY
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Commit snapshot
+        # Publishing is not gated on the checks — a visibly broken dashboard gets
+        # fixed and a silently stale one does not — so the snapshot lands either
+        # way and carries its own integrity verdict inside it.
+        run: |
+          cd .data
+          if [ ! -d .git ]; then
+            git init -q -b data
+            git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "${{ github.token }}" | base64 -w0)"
+          git add snapshots
+          if git diff --cached --quiet; then
+            echo "no new snapshot"
+          else
+            git commit -qm "data: snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push -q origin HEAD:data
+          fi
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify:
+    # Runs AFTER the deploy, on purpose. The site publishes with a red "these
+    # numbers are not trustworthy" banner, and the run goes red too — honest
+    # page, loud job. Gating the deploy instead would leave yesterday's numbers
+    # up with nothing to indicate they had stopped being refreshed.
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Integrity verdict
+        run: |
+          status='${{ needs.build.outputs.integrity }}'
+          echo "integrity: $status"
+          if [ "$status" = "fail" ]; then
+            echo "::error::Integrity checks failed — the published numbers are not"\
+                 "trustworthy. See the Coverage & health page."
+            exit 1
+          fi
+          if [ "$status" = "warn" ]; then
+            echo "::warning::Integrity warnings — see the Coverage & health page."
+          fi

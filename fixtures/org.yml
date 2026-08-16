@@ -1,0 +1,37 @@
+# Org-level ground truth — facts a human asserted that the build must reproduce.
+#
+# This file is hand-written and never generated. It does not violate "never
+# record derivable state"; it inverts it. Nothing here is a cache of what the
+# build found — it is underivable human knowledge used to AUDIT the derivation.
+# If it drifts from reality the build fails, which is the opposite of the failure
+# mode that rule protects against.
+#
+# Most fixtures do NOT belong here. A fact about one fork belongs in that fork's
+# own `.unabandoned.yml` as `expects-sibling`, so it gets updated in the same
+# pull request as the wiring it describes. What lands here is what has no single
+# home: cross-fork reachability and counted facts about the org as a whole.
+#
+# Adding one is cheap and it is the highest-leverage thing anyone can do to this
+# repository. Every historical bug was caught by a human noticing a contradiction
+# with something they already knew; each entry here turns one such piece of
+# knowledge from luck into machinery.
+
+# Reachability assertions. `via` is the exact chain between the fork and the
+# package, exclusive of both. Omit `via` to assert only that the path exists.
+paths:
+  # The fact the old flat-columns table hid: browserify does not consume
+  # browserify-sign at all. It inherits readable-stream through the org's own
+  # crypto-browserify fork — which is why fixing crypto-browserify closes
+  # browserify with it, and why the queue ranks crypto-browserify first.
+  - fork: "@unabandoned/browserify"
+    package: readable-stream
+    via: ["@unabandoned/crypto-browserify", "hash-base"]
+
+# Counted assertions. `metric` is a field on a fork row; `subject` is its repo
+# name. These are the direct machinery against the Renovate-dashboard miscount:
+# a permanent floor of one under every repo contradicts any repo asserted to
+# have zero.
+counts: []
+  # - metric: open_issues
+  #   subject: xml-js
+  #   equals: 1
