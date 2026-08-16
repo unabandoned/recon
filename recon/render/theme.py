@@ -163,6 +163,14 @@ table.t tr.emergency td { background: var(--bad-bg); }
 .q { border: 1px solid var(--border); border-radius: 12px; margin: 0 0 11px;
   background: var(--panel); overflow: hidden; }
 .q.em { border-color: var(--bad); }
+/* A long table inside a panel: collapsed by default, with its count in the
+   summary so the page stays scannable without hiding that the rows exist. */
+.fold > summary { cursor: pointer; padding: 4px 0 10px; font-weight: 600;
+  list-style: none; color: var(--fg); display: flex; gap: 8px; align-items: baseline; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "▸"; color: var(--fg-muted); }
+.fold[open] > summary::before { content: "▾"; }
+.fold > summary .n { color: var(--fg-muted); font-weight: 500; }
 .q > summary { cursor: pointer; padding: 13px 16px; display: flex; flex-wrap: wrap;
   gap: 8px 12px; align-items: baseline; list-style: none; }
 .q > summary::-webkit-details-marker { display: none; }

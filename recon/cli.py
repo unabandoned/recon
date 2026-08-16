@@ -3,6 +3,7 @@
     python -m recon.cli build      # derive, render, snapshot
     python -m recon.cli verify     # exit non-zero if a published build failed a check
     python -m recon.cli intake SPEC  # audit a foreign tree (§7b, authoritative tier)
+    python -m recon.cli compare A B  # diff two repos' committed lockfiles
 
 The split matters for the publish decision. `build` always writes output, even
 when a check fails, because a visibly broken dashboard gets fixed and a silently
@@ -20,6 +21,7 @@ Environment:
     RECON_NO_ADVISORIES       set to skip the OSV join
     RECON_NO_SNAPSHOT         set to build without writing a snapshot
     RECON_REPORTS             intake report directory (default: reports)
+    RECON_COMPARISONS         compare report directory (default: comparisons)
     RECON_ABANDONMENT_DAYS    intake abandonment threshold in days
     RECON_INVENTORY           observation to join intake against (default: public/observation.json)
 """
@@ -34,8 +36,10 @@ import sys
 import time
 from pathlib import Path
 
+from . import compare as compare_mod
 from . import fixtures as fixtures_mod
 from . import intake as intake_mod
+from . import lockfile as lockfile_mod
 from . import observation as obs_mod
 from . import snapshots
 from .classify import DEFAULT_ABANDONMENT_DAYS
@@ -254,6 +258,53 @@ def _report_intake(report: dict) -> None:
             sys.stderr.write(f"{marker}: {check['id']} — {check['detail']}\n")
 
 
+def compare(args) -> int:
+    """Diff two repositories' committed lockfiles.
+
+    No resolver and no registry: both sides already resolved their own trees and
+    committed the answer, so this reads ground truth rather than re-deriving it.
+    That is why it is fast enough to be interactive and exact enough to act on.
+    """
+    out = Path(os.environ.get("RECON_COMPARISONS", "comparisons"))
+    session = Session(clock=_utc_now)
+    compared_at = _utc_now()
+
+    baseline = lockfile_mod.fetch(session, args.baseline)
+    subject = lockfile_mod.fetch(session, args.subject)
+
+    report = compare_mod.build_report(
+        baseline, subject,
+        baseline_ref=args.baseline, subject_ref=args.subject,
+        session=session, compared_at=compared_at, builder_sha=_builder_sha(),
+    )
+
+    slug = f"{_slug(args.baseline)}...{_slug(args.subject)}"
+    path = out / slug / f"{compared_at.replace(':', '-')}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(obs_mod.canonical(report), encoding="utf-8")
+
+    html = pages.compare(report)
+    path.with_suffix(".html").write_text(html, encoding="utf-8")
+    (path.parent / "index.html").write_text(html, encoding="utf-8")
+
+    print(f"report: {path}")
+    if report["diff"] is None:
+        for check in report["integrity"]["checks"]:
+            if check["status"] == FAIL:
+                sys.stderr.write(f"FAIL: {check['id']} — {check['detail']}\n")
+        return 1
+    print(report["headline"])
+    for check in report["integrity"]["checks"]:
+        if check["status"] == WARN:
+            sys.stderr.write(f"warn: {check['id']} — {check['detail']}\n")
+    return 0
+
+
+def _slug(ref: str) -> str:
+    owner, repo, _ = lockfile_mod.parse_repo(ref)
+    return f"{owner}~{repo}"
+
+
 def verify(args) -> int:
     """Exit non-zero if the published observation failed an integrity check."""
     path = Path(args.path)
@@ -290,6 +341,12 @@ def main(argv: list[str] | None = None) -> int:
         "intake", help="audit a foreign package tree before adopting it")
     intake_cmd.add_argument("spec", help="npm spec, e.g. factor-bundle@2.0.0")
     intake_cmd.set_defaults(func=intake)
+
+    compare_cmd = sub.add_parser(
+        "compare", help="diff two repositories' committed lockfiles")
+    compare_cmd.add_argument("baseline", help="the repo compared against")
+    compare_cmd.add_argument("subject", help="the repo being examined")
+    compare_cmd.set_defaults(func=compare)
 
     verify_cmd = sub.add_parser("verify", help="fail if a build failed its checks")
     verify_cmd.add_argument("path", nargs="?", default="public/observation.json")

@@ -15,6 +15,8 @@ What is built, where it lives, and what is deliberately not built yet. The desig
 | `recon/classify.py` | `alive` / `inert` / `time_bomb` / `unknown`, with evidence |
 | `recon/graph.py` | Dominators, shadowing, blast radius, the ranked queue |
 | `recon/osv.py` | Advisory batch join and the emergency tier |
+| `recon/lockfile.py` | Read a committed npm/pnpm lockfile. Parsing, never resolving |
+| `recon/compare.py` | Diff two repositories' lockfiles — added/dropped/replaced/bumped/pinned |
 | `recon/intake.py` | §7b: audit a foreign tree, join it against the fork inventory |
 | `recon/integrity.py` | Every check, as a value rather than an exception |
 | `recon/observation.py` | The pipeline. `build_core` cannot see history; `finish` adds integrity |
@@ -206,6 +208,58 @@ wanted, the honest version is a *fidelity-badged estimate* that refuses to print
 a plan — and it should be built with `vendor/recon-lite/package.json` +
 lockfile committed so Renovate can see the tree, plus a CI check that the
 committed bundle still matches the lockfile.
+
+## Compare: reading a lockfile is not resolving one
+
+`recon.cli compare A B` takes two repository URLs and diffs their **committed
+lockfiles**. It is the org's own thesis pointed outward — *a fork is only worth
+carrying if the tree is actually healthier* — and it costs almost nothing,
+because it does no resolution and touches no registry. Two files in, one diff
+out.
+
+That is not in tension with the decision to drop recon-lite. recon-lite was
+rejected for *approximating npm's resolution* and being 31% wrong. A lockfile
+has nothing to approximate: the tool already resolved and committed the answer,
+and reading it is the only way to learn what a project actually installs rather
+than what it would install today. The two conclusions come from the same rule,
+not opposite ones.
+
+Consequences of that rule, in the code:
+
+- **A format we cannot read is refused, never resolved around.** `yarn.lock`
+  and `bun.lockb` return a failed `Fact` naming the format. Falling back to
+  `npm install` would report a tree the project does not install — `it-tools`
+  pins exact versions while its upstream uses `^` ranges throughout, so the
+  npm-resolved pair would differ in ways that are artifacts of the resolver.
+- **An unread side produces no diff, not an empty one.** An empty diff renders
+  as "these repositories are identical", which is the most confidently wrong
+  thing this report could say. `compare.both-sides-read` fails and the page says
+  there is no comparison.
+- **Cross-tool comparisons warn.** npm and pnpm hoist and dedupe differently, so
+  a tree-size delta between them measures the resolvers as much as the projects.
+  Direct dependencies stay comparable and the check says exactly that.
+- **`bump_kind` says `changed` when it cannot order two versions.** Guessing a
+  direction for `2.0.0-rc.1` invents one the comparison does not have.
+- **Workspace members are named, not merged.** A monorepo has many manifests;
+  flattening them invents a dependency set no package declares.
+
+Two bugs this found, both in the reading rather than the diffing:
+
+**The peer suffix ate the package name.** pnpm records the peer context it
+resolved against inside the version string — `'@tabler/icons-vue@3.20.0(vue@3.3.4)'`.
+Splitting the ident on the last `@` therefore lands *inside the parenthetical*
+and yields the package name `@tabler/icons-vue@3.20.0(vue`. Every such entry
+became its own phantom package, inflating both trees: the real `it-tools` pair
+is 1,063 → 1,219 packages, not the 1,268 → 1,456 the bug reported. The suffix
+now comes off before the split, and it is the second time in this repository
+that a "split on the last @" has been wrong for a reason nobody anticipated.
+
+**A scoped republish is one decision, not two.** `composerize-ts` leaving while
+`@thetechnetwork/composerize-ts` arrives is precisely the `@unabandoned` pattern
+seen from outside, and reporting it as an unrelated add and drop buries the most
+interesting thing a fork can do. Matched on the unscoped basename — the same
+join `intake` uses for coverage, so the two agree on what "the same package
+under a different owner" means.
 
 ## Notes for whoever picks this up
 
