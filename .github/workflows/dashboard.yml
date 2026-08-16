@@ -53,7 +53,7 @@ jobs:
     outputs:
       integrity: ${{ steps.build.outputs.integrity }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Snapshot history lives on its own branch so clones of the code stay
       # light. Only the differ and the trend renderer read it — the current-state
@@ -61,7 +61,7 @@ jobs:
       # every build by re-deriving with this directory masked.
       - name: Restore snapshot history
         continue-on-error: true          # the branch does not exist on day one
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: data
           path: .data
