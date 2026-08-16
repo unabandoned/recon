@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .. import scenario as scenario_mod
 from . import svg
 from .components import (PAGES, banner, chip, e, page, sparkline, stat, table,
                          trail, value)
@@ -618,6 +619,7 @@ def intake(report: dict, *, home: str = "../../index.html") -> str:
         + table(["Package", "Versions", "State", "Why", "Covered", "Advisories"],
                 pkg_rows)
         + "</div>"
+        + _scenario_panel(report)
         + _reuse_panel(report)
         + _checks_panel(report)
     )
@@ -632,6 +634,122 @@ def intake(report: dict, *, home: str = "../../index.html") -> str:
             "timestamped observation, and it goes stale on purpose."
         ),
         body=body,
+    )
+
+
+ACTION_CHIP = {"fork": "time_bomb", "alias": "alive", "queued": "unknown"}
+
+
+def _scenario_panel(report: dict) -> str:
+    """What adopting this would cost, and the prompt that starts the work.
+
+    The queue answers "what should we fix first"; this answers "what do we take
+    on if we adopt this", which is the question asked *before* committing. A
+    large tree can carry a small obligation, because most of what rots beneath
+    it may already be rotting beneath something we own — and that is precisely
+    the number nobody can eyeball.
+    """
+    s = scenario_mod.build(report)
+    if not s["resolved"]:
+        return ""
+    surf = s["surface"]
+
+    tiles = (
+        stat(surf["packages_owned"], "packages you would own",
+             denominator="everything in the published tree becomes your problem")
+        + stat(surf["time_bombs"], "time bombs in it",
+               cls="bad" if surf["time_bombs"] else "",
+               denominator="abandoned and carrying their own dependencies")
+        + (stat(surf["new_forks"], "NEW forks required", cls="key",
+                denominator="not covered by anything we publish, and not already queued")
+           if "new_forks" in surf else
+           stat("unknown", "new forks required", cls="warn",
+                denominator="the coverage join failed; this cannot be computed"))
+        + (stat(surf["already_queued"], "already our problem",
+                denominator="ranked in the work queue regardless of this decision")
+           if "already_queued" in surf else "")
+        + stat(surf["inert_left_alone"], "inert, left alone",
+               denominator="abandoned with nothing beneath them to rot")
+    )
+
+    if not s["coverage_known"]:
+        verdict = ('<p class="empty">The cost of adopting this is <b>unknown</b> — the '
+                   "fork inventory could not be read, so this build cannot say what is "
+                   "already covered. It is not saying the cost is zero.</p>")
+    elif s["new_forks"]:
+        verdict = (
+            f'<p class="lede">Adopting <code>{e(s["package"])}</code> would take on '
+            f'<b>{len(s["new_forks"])}</b> new fork(s): '
+            + ", ".join(f"<code>{e(n)}</code>" for n in s["new_forks"])
+            + f'. A further <b>{len(s["already_queued"])}</b> intervention(s) beneath it '
+              "are already in the work queue, so they are not new obligations.</p>"
+        )
+    else:
+        verdict = (
+            f'<p class="lede"><b>No new forks.</b> Every abandoned-and-rotting package '
+            f'beneath <code>{e(s["package"])}</code> is already covered by a fork we '
+            f'publish or already ranked in the work queue — '
+            f'{len(s["already_queued"])} queued, {len(s["aliases"])} to alias. The tree '
+            f'is large and the obligation is not.</p>'
+        )
+
+    rows = []
+    for name in s["new_forks"]:
+        rows.append(f'<tr><td><b>{e(name)}</b></td><td>{chip("time_bomb", "fork")}</td>'
+                    "<td>nothing we publish covers it</td></tr>")
+    for a in s["aliases"]:
+        rows.append(f'<tr><td><b>{e(a["package"])}</b></td><td>{chip("alive", "alias")}</td>'
+                    f'<td>wire to <code>{e(a["fork"] or "")}</code></td></tr>')
+    for name in s["already_queued"]:
+        rows.append(f'<tr><td><b>{e(name)}</b></td><td>{chip("unknown", "queued")}</td>'
+                    "<td>already ranked in the work queue</td></tr>")
+    for name in s["unclassified"]:
+        rows.append(f'<tr><td><b>{e(name)}</b></td><td>{chip("unknown", "unknown")}</td>'
+                    "<td>no inventory to classify it against</td></tr>")
+
+    link = s["deep_link"]
+    if link["fits"]:
+        # `claude-cli://` is stripped by GitHub-rendered Markdown but works from
+        # an HTML page, which is what this is. It fills the prompt box and sends
+        # nothing — the reader still has to read it and press Enter.
+        launch = (
+            f'<p><a class="btn" href="{e(link["url"])}">Open in Claude Code →</a></p>'
+            '<p class="note">Fills the prompt box in a local session and sends nothing; '
+            "you read it and press Enter. Needs Claude Code installed and a clone it has "
+            "seen before, otherwise it opens in your home directory.</p>"
+        )
+    else:
+        launch = (
+            f'<p class="empty">The prompt is {link["length"]} characters, over the '
+            f'{link["limit"]}-character deep-link limit, so there is no launch link. '
+            "Copy the prompt below instead.</p>"
+        )
+
+    return (
+        '<div class="panel"><h3>If we adopt this, what do we own?</h3>'
+        '<p class="note">The work queue ranks by how much rot a fix removes. This is the '
+        "other question: what comes with it. A package can resolve a large tree and add "
+        "almost no obligation, because most of what rots beneath it already rots beneath "
+        "something we maintain.</p>"
+        f'<div class="tiles">{tiles}</div>'
+        + verdict
+        + table(["Package", "Action", "Why"], rows,
+                empty="Nothing abandoned-and-rotting beneath it — adopting it adds no "
+                      "dependency obligation at all.")
+        + "</div>"
+        + '<div class="panel"><h3>Onboarding</h3>'
+        '<p class="note">Attach these repositories, then use the prompt. The list is '
+        "derived: the fork itself, the two every fork's CI and Renovate config come from, "
+        "and one per sibling this fork will alias — because wiring an alias means reading "
+        "what that sibling actually publishes rather than guessing a range.</p>"
+        + "<p>" + " ".join(
+            f'<code>{e(r)}</code>' for r in s["attach"]
+        ) + "</p>"
+        + launch
+        + '<details class="fold"><summary>Full onboarding prompt '
+        f'<span class="n">{len(s["prompt"])} chars</span></summary>'
+        f'<pre class="prompt">{e(s["prompt"])}</pre></details>'
+        "</div>"
     )
 
 
