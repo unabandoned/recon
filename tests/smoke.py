@@ -27,6 +27,12 @@ from recon.resolve import npm_available, resolve_tree
 
 TARGET = "browserify@17.0.0"   # pinned: a moving target makes a flaky test
 
+#: A spec form that carries no package name at all. `spec_name` cannot answer
+#: for it, so the root has to come from the lockfile — and when it silently did
+#: not, the audited repository became a node in its own tree and dominated
+#: everything beneath it. Cheap to check here because npm resolves metadata only.
+REPO_TARGET = "github:browserify/factor-bundle"
+
 
 def main() -> int:
     if not npm_available():
@@ -55,6 +61,30 @@ def main() -> int:
             "to find its own root, which silently rebases the whole analysis\n"
         )
         return 1
+
+    # The same assertion for a spec that does not name its own package. This is
+    # a different code path — `spec_name` cannot help, so the root must be
+    # derived from the lockfile — and it was broken for the whole life of the
+    # first fix without any offline test noticing.
+    repo_fact = resolve_tree(REPO_TARGET)
+    if not repo_fact.is_ok:
+        sys.stderr.write(f"error: could not resolve {REPO_TARGET}: {repo_fact.detail}\n")
+        return 1
+    repo_tree = repo_fact.payload
+    if repo_tree.root_key != "node_modules/factor-bundle":
+        sys.stderr.write(
+            f"error: {REPO_TARGET} rooted at {repo_tree.root_key!r} — a spec that "
+            "does not name its package failed to find its root, so the audited "
+            "repository is an ordinary node dominating its own tree\n"
+        )
+        return 1
+    if any(n.name == repo_tree.root for n in repo_tree.nodes.values()):
+        sys.stderr.write(
+            f"error: {repo_tree.root} appears as a dependency of itself\n"
+        )
+        return 1
+    print(f"resolved {REPO_TARGET}: rooted at {repo_tree.root}, "
+          f"{len(repo_tree.nodes)} nodes")
 
     # --- M2, for real ------------------------------------------------------
     compared = mismatched = 0

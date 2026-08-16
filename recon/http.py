@@ -97,11 +97,45 @@ class Session:
         "this repo has no `.unabandoned.yml`", which is a real answer rather
         than a failed read. Every other non-2xx is a failure and says so.
         """
+        return self._get(
+            url, headers=headers, params=params, absent_is_ok=absent_is_ok,
+            accept="application/json",
+            parse=lambda raw: json.loads(raw.decode("utf-8")), what="JSON",
+        )
+
+    def get_text(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        absent_is_ok: bool = False,
+    ) -> Fact:
+        """GET and decode as UTF-8 text. For lockfiles, which are not all JSON."""
+        return self._get(
+            url, headers=headers, params=params, absent_is_ok=absent_is_ok,
+            accept="text/plain, */*",
+            parse=lambda raw: raw.decode("utf-8"), what="text",
+        )
+
+    def _get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None,
+        params: dict[str, Any] | None,
+        absent_is_ok: bool,
+        accept: str,
+        parse: Callable[[bytes], Any],
+        what: str,
+    ) -> Fact:
+        """The one transport path. Parameterised by how the body is read, so
+        text and JSON share a single retry loop and a single ledger."""
         if params:
             url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
         req = urllib.request.Request(url)
         req.add_header("User-Agent", USER_AGENT)
-        req.add_header("Accept", "application/json")
+        req.add_header("Accept", accept)
         for k, v in (headers or {}).items():
             req.add_header(k, v)
 
@@ -129,13 +163,14 @@ class Session:
                     continue
             else:
                 try:
-                    doc = json.loads(raw.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    doc = parse(raw)
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                     # Reached the server, got something unparseable. Not a
                     # transport problem and not worth retrying, but emphatically
                     # not a successful read either.
-                    self._record(recorded, "failed", code, f"malformed JSON: {exc}"[:200], at)
-                    return Fact.failed(f"malformed JSON: {exc}"[:200], source=recorded, at=at)
+                    detail = f"malformed {what}: {exc}"[:200]
+                    self._record(recorded, "failed", code, detail, at)
+                    return Fact.failed(detail, source=recorded, at=at)
                 self._record(recorded, "ok", 200, "", at)
                 return Fact.ok(doc, source=recorded, at=at)
             break

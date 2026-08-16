@@ -262,3 +262,61 @@ class SpecNameMustNotSilentlyReroot(unittest.TestCase):
         self.assertEqual(tree.root_key, "node_modules/thing")
         # The target must not appear as a node in its own tree.
         self.assertEqual(sorted(n.name for n in tree.nodes.values()), ["leaf"])
+
+
+class RepoSpecMustNotSilentlyReroot(unittest.TestCase):
+    """The same failure, surviving the fix that was supposed to end it.
+
+    `spec_name` was added for `pkg@version` and left every *other* spec form
+    broken. `resolve_tree("github:browserify/factor-bundle")` looked for
+    `node_modules/github:browserify/factor-bundle`, missed, and fell back to the
+    probe manifest — so the audited repository became an ordinary node
+    dominating its own subtree and shadowing every real intervention.
+
+    The adoption plan it produced had one entry, "fork factor-bundle", which
+    cleared 100% of the rot and passed every downstream check *including*
+    `intake.plan-clears-rot`. A conservation invariant is satisfied by the
+    degenerate answer, which is worth remembering the next time one is written.
+    """
+
+    #: What npm writes after `npm install github:owner/repo`: the dependency is
+    #: keyed by the package's real name, which the spec string never contained.
+    LOCK = {
+        "packages": {
+            "": {"dependencies": {"factor-bundle": "github:browserify/factor-bundle"}},
+            "node_modules/factor-bundle": {
+                "version": "2.0.0", "dependencies": {"leaf": "^1", "rot": "^1"}},
+            "node_modules/leaf": {"version": "1.0.0"},
+            "node_modules/rot": {"version": "1.0.0", "dependencies": {"leaf": "^1"}},
+        }
+    }
+
+    def test_a_repo_spec_finds_the_root_the_spec_does_not_name(self):
+        for spec in ("github:browserify/factor-bundle",
+                     "browserify/factor-bundle",
+                     "git+https://github.com/browserify/factor-bundle.git"):
+            tree = parse_lockfile(self.LOCK, spec)
+            self.assertEqual(tree.root_key, "node_modules/factor-bundle", spec)
+            self.assertEqual(tree.root, "factor-bundle", spec)
+
+    def test_the_audited_repo_is_not_a_node_in_its_own_tree(self):
+        tree = parse_lockfile(self.LOCK, "github:browserify/factor-bundle")
+        self.assertEqual(sorted(n.name for n in tree.nodes.values()), ["leaf", "rot"])
+
+    def test_an_unidentifiable_root_is_a_failed_read_not_a_rerooted_tree(self):
+        """A tree with the wrong root is worse than no tree."""
+        with self.assertRaises(ValueError) as caught:
+            parse_lockfile({"packages": {
+                "": {"dependencies": {"a": "^1", "b": "^1"}},
+                "node_modules/a": {"version": "1.0.0"},
+                "node_modules/b": {"version": "1.0.0"},
+            }}, "some://unresolvable/spec")
+        self.assertIn("could not identify the root", str(caught.exception))
+
+    def test_resolve_tree_turns_that_into_a_failed_fact(self):
+        """And a failed fact is what `intake` renders as an unresolved audit."""
+        from recon import resolve as R
+        lock = {"packages": {"": {"dependencies": {"a": "^1", "b": "^1"}},
+                             "node_modules/a": {}, "node_modules/b": {}}}
+        with self.assertRaises(ValueError):
+            R.parse_lockfile(lock, "weird:spec")

@@ -670,6 +670,163 @@ def _checks_panel(report: dict) -> str:
     )
 
 
+BUMP_CLASS = {"major": "bad", "downgrade": "bad", "minor": "warn",
+              "patch": "", "changed": ""}
+
+
+def compare(report: dict, *, home: str = "../../index.html") -> str:
+    """Two repositories' lockfiles, diffed. No health claims — see the lede."""
+    meta = report["meta"]
+    shell = dict(
+        current="intake.html", title=f"compare · {meta['subject']}",
+        css=CSS, nav=False, home=home, integrity_link="#checks",
+        meta={**meta, "built_at": meta.get("compared_at", "")},
+        integrity=report["integrity"],
+    )
+    lede = (
+        f"<code>{e(meta['subject'])}</code> measured against "
+        f"<code>{e(meta['baseline'])}</code>. Both sides' <b>committed lockfiles</b> "
+        "are read as-is — nothing is re-resolved, so this is what each project "
+        "actually installs rather than what it would install today. It makes "
+        "<b>no claim about health</b>: classifying a package needs its publish "
+        "date, which is a separate and much more expensive step."
+    )
+
+    if report["diff"] is None:
+        return page(**shell, lede=lede, body=(
+            '<div class="panel"><h3>No comparison</h3>'
+            '<p class="empty">One or both lockfiles could not be read, so there is '
+            "no diff — not an empty one. An empty diff renders as "
+            "&ldquo;these repositories are identical&rdquo;.</p></div>"
+            + _sides_panel(report) + _checks_panel(report)
+        ))
+
+    d = report["diff"]
+    t = d["totals"]
+    tiles = (
+        stat(t["added"], "added", denominator="direct dependencies the subject gained")
+        + stat(t["removed"], "dropped", denominator="direct dependencies it no longer has")
+        + stat(t["replaced"], "replaced", cls="key",
+               denominator="swapped for a scoped republish")
+        + stat(t["bumped_major"], "major bumps", cls="warn" if t["bumped_major"] else "",
+               denominator=f'of {t["bumped"]} version change(s)')
+        + stat(t["pinning"], "pinning changes",
+               denominator=f'{d["subject"]["pinned"]} of {d["subject"]["direct"]} pinned '
+                           f'vs {d["baseline"]["pinned"]} of {d["baseline"]["direct"]}')
+        + stat(f'{t["tree_subject"] - t["tree_baseline"]:+d}', "packages in the tree",
+               denominator=f'{t["tree_baseline"]} → {t["tree_subject"]}')
+    )
+
+    replaced_rows = [
+        f'<tr><td><b>{e(r["package"])}</b>'
+        # An alias swap keeps the manifest key, so say which mechanism was used
+        # — the reader cannot tell from the names alone.
+        + ('<span class="dim"> via alias</span>' if r.get("via_alias") else "") + "</td>"
+        f'<td class="mono">{e(r["was"])} <span class="dim">{e(r["was_version"])}</span></td>'
+        f'<td class="mono">{e(r["now"])} <span class="dim">{e(r["now_version"])}</span></td>'
+        f'<td>{e(r["into_scope"] or "—")}</td></tr>'
+        for r in d["direct"]["replaced"]
+    ]
+    bumped_rows = [
+        f'<tr><td><b>{e(r["package"])}</b>'
+        + ('<span class="dim"> dev</span>' if r["dev"] else "") + "</td>"
+        f'<td>{chip(BUMP_CLASS.get(r["kind"], "") or "alive", r["kind"])}</td>'
+        f'<td class="mono">{e(r["from"])}</td><td class="mono">{e(r["to"])}</td>'
+        f'<td class="mono">{e(r["from_specifier"])} → {e(r["to_specifier"])}</td></tr>'
+        for r in d["direct"]["bumped"]
+    ]
+    added_rows = [
+        f'<tr><td><b>{e(r["package"])}</b></td><td class="mono">{e(r["version"])}</td>'
+        f'<td class="mono">{e(r["specifier"])}</td>'
+        f'<td>{"dev" if r["dev"] else "runtime"}</td></tr>'
+        for r in d["direct"]["added"]
+    ]
+    removed_rows = [
+        f'<tr><td><b>{e(r["package"])}</b></td><td class="mono">{e(r["version"])}</td>'
+        f'<td class="mono">{e(r["specifier"])}</td>'
+        f'<td>{"dev" if r["dev"] else "runtime"}</td></tr>'
+        for r in d["direct"]["removed"]
+    ]
+    pin_rows = [
+        f'<tr><td><b>{e(r["package"])}</b></td>'
+        f'<td>{chip("time_bomb" if r["direction"] == "pinned" else "alive", r["direction"])}</td>'
+        f'<td class="mono">{e(r["from"])} → {e(r["to"])}</td></tr>'
+        for r in d["direct"]["pinning"]
+    ]
+
+    return page(**shell, lede=lede, body=(
+        f'<div class="tiles">{tiles}</div>'
+        f'<p class="lede">{e(report["headline"])}</p>'
+        + _sides_panel(report)
+        + _fold(
+            "Replaced with a scoped republish", t["replaced"],
+            "A package dropped while a scoped build of the same name arrives is one "
+            "decision, not two unrelated ones — and it is the same decision the "
+            "<code>@unabandoned</code> scope exists to make.",
+            table(["Package", "Was", "Now", "Into scope"], replaced_rows,
+                  empty="No package was swapped for a scoped republish."),
+            open_=True,
+        )
+        + _fold(
+            "Version changes", t["bumped"],
+            f'{t["bumped_major"]} major, {t["bumped_minor"]} minor, '
+            f'{t["bumped_patch"]} patch, {t["bumped_downgrade"]} downgrade, '
+            f'{t["bumped_changed"]} unranked.',
+            table(["Package", "Kind", "From", "To", "Specifier"], bumped_rows,
+                  empty="No shared dependency changed version."),
+        )
+        + _fold(
+            "Pinning", t["pinning"],
+            "The org&rsquo;s own position is <b>fix forward, don&rsquo;t pin</b>: "
+            "pinning re-introduces exactly the rot this program exists to remove. "
+            "The direction is named so the reader does not have to infer it.",
+            table(["Package", "Direction", "Specifier"], pin_rows,
+                  empty="No specifier changed between pinned and ranged."),
+        )
+        + _fold("Added", t["added"], "",
+                table(["Package", "Version", "Specifier", "Tree"], added_rows,
+                      empty="Nothing added."))
+        + _fold("Dropped", t["removed"], "",
+                table(["Package", "Version", "Specifier", "Tree"], removed_rows,
+                      empty="Nothing dropped."))
+        + _checks_panel(report)
+    ))
+
+
+def _fold(title: str, count: int, note: str, body: str, *, open_: bool = False) -> str:
+    """A panel whose table is collapsed until asked for.
+
+    The count lives in the summary rather than the table, so folding never hides
+    the size of what was found — only the rows.
+    """
+    return (
+        f'<div class="panel"><details class="fold"{" open" if open_ else ""}>'
+        f'<summary>{e(title)} <span class="n">{count}</span></summary>'
+        + (f'<p class="note">{note}</p>' if note else "")
+        + body + "</details></div>"
+    )
+
+
+def _sides_panel(report: dict) -> str:
+    rows = []
+    for side in ("baseline", "subject"):
+        info = report["sides"][side]
+        d = (report.get("diff") or {}).get(side) or {}
+        rows.append(
+            f'<tr><td><b>{e(side)}</b></td>'
+            f'<td class="mono">{e(info.get("input", ""))}</td>'
+            f'<td class="mono">{e(info.get("source", "—"))}</td>'
+            f'<td>{e(d.get("tool", "—"))}</td>'
+            f'<td>{e(d.get("direct", "—"))}</td>'
+            f'<td>{e(d.get("packages", "—"))}</td></tr>'
+        )
+    return (
+        '<div class="panel"><h3>What was read</h3>'
+        + table(["Side", "Input", "Lockfile", "Tool", "Direct", "Tree"], rows)
+        + "</div>"
+    )
+
+
 def intake_index(obs: dict, reports: list[dict], *, repo: str = "unabandoned/recon") -> str:
     """The dashboard's intake tab: what has been audited, and how to audit more."""
     rows = []
