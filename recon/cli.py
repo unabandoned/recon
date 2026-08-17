@@ -133,7 +133,7 @@ def build(args) -> int:
         (out / name).write_text(html, encoding="utf-8")
     (out / "observation.json").write_text(obs_mod.canonical(observation), encoding="utf-8")
     (out / "changes.json").write_text(obs_mod.canonical(delta), encoding="utf-8")
-    # The site, written for an agent: a map to `observation.json`, the program's
+    # The site, written for an agent: a map to `observation.json`, the org's
     # rules, and where the hosted onboarding instructions live. Derived from the
     # same observation, so it cannot describe a site that no longer exists.
     (out / "llms.txt").write_text(llms_mod.render(observation, reports), encoding="utf-8")

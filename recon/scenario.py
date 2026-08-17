@@ -134,7 +134,8 @@ def _prompt(org, package, report, by_action, wire, attach, known) -> str:
     """The onboarding prompt. Specific enough to act on, honest about what it assumes."""
     scope = f"@{org}/{package}"
     lines = [
-        f"Onboard the freshly forked `{org}/{package}` into the {org} program.",
+        f"Onboard the freshly forked `{org}/{package}` into the `{org}` org — where the "
+        f"abandoned dependencies our projects pull in are parked and kept current.",
         "",
         "Context from the adoption audit that produced this prompt:",
         f"- The published tree resolves {report['totals'].get('packages', 0)} packages, "
@@ -192,7 +193,7 @@ def _prompt(org, package, report, by_action, wire, attach, known) -> str:
         lines += [
             f"{n}. These are abandoned, carry their own dependencies, and are NOT covered "
             f"by anything we publish: {', '.join(s['package'] for s in by_action[intake.FORK])}. "
-            "Each one is a new fork under the program's prime directive, or a documented "
+            "Each one is another fork parked in this org, or a documented "
             "decision to replace or vendor it. Do not silence them.",
         ]
         n += 1
@@ -216,7 +217,7 @@ def _prompt(org, package, report, by_action, wire, attach, known) -> str:
         n += 1
 
     lines += [
-        f"{n}. Do NOT pin to dodge a breaking major. The program's position is fix "
+        f"{n}. Do NOT pin to dodge a breaking major. The org's position is fix "
         "forward — adopt the new major and repair the real breakages.",
         "",
         "Two steps cannot be automated and are not yours to do: installing the Renovate "
@@ -244,7 +245,7 @@ def _compact_prompt(org, package, by_action, wire, known, onboard_url, attach) -
     the link.
     """
     bits = [
-        f"Onboard the forked `{org}/{package}` into the {org} maintained-fork program.",
+        f"Onboard the forked `{org}/{package}` into the `{org}` org.",
         f"Read {onboard_url} first and follow it — it is this org's own generated "
         f"instructions, and it carries the full checklist and the current audit.",
         "Attach these repositories: " + ", ".join(attach) + ".",

@@ -1,4 +1,4 @@
-"""recon — dependency reconnaissance for the unabandoned maintained-fork program.
+"""recon — dependency reconnaissance for the `unabandoned` org.
 
 The tool answers three questions: what is rotting beneath our forks, which
 single change removes the most of it, and how much of the picture can we

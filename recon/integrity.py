@@ -401,6 +401,49 @@ def fork_edge_floor(edge_count: int, fork_count: int, floor: int) -> Check:
     )
 
 
+def consumers_are_named(consumer_edges: list[dict], fork_packages: set[str]) -> Check:
+    """Something outside this org has to appear in `used-by`, or nothing does.
+
+    The org exists because *our projects* depend on these packages; the forks are
+    where those dependencies are parked so they do not bury the organization the
+    projects live in. So the question the whole thing is for — which of our
+    projects is standing under this rot — is answered by `used-by` and nothing
+    else derives it.
+
+    Every `used-by` entry currently names a **sibling fork**, which the resolver
+    already derives from `package.json`. That is not wrong, it is just not the
+    fact this field exists to carry, and the failure is silent in the worst way:
+    the topology draws no external consumers and reads as "no project depends on
+    these" rather than "nobody wrote down which ones do". Same shape as a failed
+    fetch becoming a zero, aimed at the one number the org is actually about.
+    """
+    external = sorted({
+        e["from"] for e in consumer_edges if e.get("from") not in fork_packages
+    })
+    internal = sum(1 for e in consumer_edges if e.get("from") in fork_packages)
+    evidence = {
+        "external_consumers": len(external),
+        "sibling_edges": internal,
+        "named": external[:20],
+    }
+    title = "Some consumer outside the org is named in `used-by`"
+
+    if not external:
+        return Check(
+            "m4.consumers-named", "M4", WARN, title,
+            f"no repository outside this org appears in any fork's `used-by` — "
+            f"{internal} entr(y/ies) name a sibling fork, which the resolver already "
+            f"derives. Which of our projects reach these trees is unrecorded, not zero",
+            evidence,
+        )
+    return Check(
+        "m4.consumers-named", "M4", PASS, title,
+        f"{len(external)} consumer(s) outside the org named across {len(consumer_edges)} "
+        f"`used-by` entr(y/ies)",
+        evidence,
+    )
+
+
 def uniformity(metric: str, values: dict[str, Any], *, minimum: int = 4) -> Check:
     """A per-repo metric identical on every repo is usually a counted artifact.
 

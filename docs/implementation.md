@@ -48,10 +48,11 @@ neither npm nor a network.
   declares which sibling), `paths` (how a package is reached), and `counts`. An empty
   fixture set warns rather than passes — see the fourth bug below for why that is not
   a stylistic choice.
-- **M4** is four cheap assertions in `integrity.py`. The uniformity detector looks for
+- **M4** is five cheap assertions in `integrity.py`. The uniformity detector looks for
   a hard non-zero floor across every repo, which is what the Renovate-dashboard
   miscount actually looked like — the values varied, so uniformity alone said nothing,
-  but no repo could ever reach zero.
+  but no repo could ever reach zero. `m4.consumers-named` warns when no repository
+  outside the org appears in any fork's `used-by` — see the last entry below.
 - **M5** compares `totals` against the previous snapshot. An intended jump is named
   once via `RECON_ACK_DELTA`.
 - **Reproducibility** is `observation.rederive_with_history_masked`, which re-runs the
@@ -164,6 +165,18 @@ the adoption mechanism this org uses. Both readers now record the real package
 behind the key, from npm's `name` field and pnpm's `npm:` specifier, and the
 swap is reported as a replacement rather than being silently dropped or
 double-counted as a 5.7.1 → 6.0.4 "major bump" between two different packages.
+
+**Nothing in the data knows which of our projects this is for.** The org's whole
+reason for existing is that *our projects* depend on these packages; the forks are
+where those dependencies are parked so they do not bury the organization the
+projects live in. `used-by` in each fork's `.unabandoned.yml` is the only place
+that fact can be recorded — nothing derives it. On the live build, 19 of 27 forks
+carry `used-by` and **every single entry names a sibling fork**, which the resolver
+already derives from `package.json`. So the field looks populated, the topology
+draws no external consumers, and the page reads as "no project of ours depends on
+these" when what it means is "nobody wrote down which ones do". `m4.consumers-named`
+now warns on exactly that, and the topology page says it in words. The same shape as
+a failed fetch becoming a zero, aimed at the one question the org is actually about.
 
 **One check was removed rather than fixed.** `m4.zero-dep-sanity` warned when a
 package's resolved version declared no dependencies while `latest` declared some.

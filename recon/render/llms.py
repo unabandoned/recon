@@ -40,9 +40,12 @@ def render(obs: dict, reports: list[dict] | None = None, *, site: str = SITE) ->
     out: list[str] = [
         "# recon — dependency reconnaissance for the `unabandoned` org",
         "",
-        f"> Which abandoned dependencies are rotting beneath the `@unabandoned/*` "
-        f"forks, which single change removes the most of it, and how much of the "
-        f"picture can actually be seen. Generated {meta.get('built_at', 'unknown')} "
+        f"> `unabandoned` is where the abandoned dependencies our own projects pull "
+        f"in get forked and parked, instead of cluttering the organization those "
+        f"projects live in. This site answers what is rotting beneath them, which "
+        f"single change removes the most of it, what taking over one more would "
+        f"drag in, and how much of the picture can actually be seen. Generated "
+        f"{meta.get('built_at', 'unknown')} "
         f"from commit `{(meta.get('builder_sha') or '')[:8]}`; every page and every "
         f"number here is derived at build time and never hand-edited.",
         "",
@@ -108,10 +111,11 @@ def render(obs: dict, reports: list[dict] | None = None, *, site: str = SITE) ->
         "",
         "## Rules that apply to any work in this org",
         "",
-        "- Fork trigger is **abandoned + any outdated dependency**, not a CVE. A "
-        "live CVE changes the timeline, not the threshold.",
+        "- The trigger is **we depend on it**, then abandoned + any outdated "
+        "dependency — not a CVE, and not a survey of the ecosystem. A live CVE "
+        "changes the timeline, not the threshold.",
         "- **Fix forward, don't pin.** Pinning to dodge a breaking major "
-        "re-introduces exactly the rot this program exists to remove.",
+        "re-introduces exactly the rot we forked the package to remove.",
         "- Each fork's `renovate.json` must carry `\"forkProcessing\": \"enabled\"` "
         "in its own root config; the value inherited from the shared preset is "
         "ignored for the fork-skip decision.",

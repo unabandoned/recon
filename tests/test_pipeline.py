@@ -159,9 +159,17 @@ class Edges(unittest.TestCase):
     def test_consumer_edges_come_from_used_by(self):
         self.assertIn(
             {"from": "some-app", "to": "@unabandoned/browserify",
-             "kind": "consumer", "derivation": "used-by"},
+             "kind": "consumer", "derivation": "used-by", "internal": False},
             self.core["consumer_edges"],
         )
+
+    def test_a_used_by_naming_a_sibling_is_marked_internal(self):
+        """`used-by` is how we record which of *our projects* stand under a fork.
+        An entry naming another fork restates a resolver-derived edge; keeping the
+        two distinguishable is what stops an empty consumer row from reading as
+        "no project depends on this"."""
+        internal = [e for e in self.core["consumer_edges"] if e["internal"]]
+        self.assertTrue(all(e["from"].startswith("@unabandoned/") for e in internal))
 
 
 class Issues(unittest.TestCase):

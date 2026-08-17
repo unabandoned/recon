@@ -193,6 +193,33 @@ class M4(unittest.TestCase):
         check = I.uniformity("open_issues", {"a": 0, "b": 1, "c": 2, "d": 0, "e": 4})
         self.assertEqual(check.status, I.PASS)
 
+    def test_used_by_that_only_names_siblings_warns(self):
+        """The live shape: 19 of 27 forks carry `used-by`, and every entry names
+        another fork — a fact the resolver already derives. So the question the
+        org exists for, which of *our projects* stands under this rot, has no
+        answer, while the topology's empty consumer row reads like "none"."""
+        forks = {"@unabandoned/browserify", "@unabandoned/module-deps"}
+        edges = [
+            {"from": "@unabandoned/browserify", "to": "@unabandoned/module-deps"},
+            {"from": "@unabandoned/module-deps", "to": "@unabandoned/detective"},
+        ]
+        check = I.consumers_are_named(edges, forks)
+        self.assertEqual(check.status, I.WARN)
+        self.assertEqual(check.data["external_consumers"], 0)
+        self.assertIn("unrecorded, not zero", check.detail)
+
+    def test_naming_one_repo_outside_the_org_passes(self):
+        check = I.consumers_are_named(
+            [{"from": "acme/web", "to": "@unabandoned/browserify"}],
+            {"@unabandoned/browserify"},
+        )
+        self.assertEqual(check.status, I.PASS)
+        self.assertEqual(check.data["named"], ["acme/web"])
+
+    def test_no_used_by_entries_at_all_still_warns(self):
+        """Nothing recorded is the same unknown as nothing external recorded."""
+        self.assertEqual(I.consumers_are_named([], {"@unabandoned/x"}).status, I.WARN)
+
     def test_ledger_that_does_not_balance_fails(self):
         check = I.conservation({
             "repos": {"discovered": 29, "included": 27,
