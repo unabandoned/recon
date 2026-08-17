@@ -100,9 +100,10 @@ def overview(obs: dict, trend: dict) -> str:
     return page(
         current="index.html", title="overview",
         lede=(
-            "Which abandoned dependencies are rotting beneath the "
-            "<code>@unabandoned/*</code> forks, which single change removes the most "
-            f"of it, and how much of the picture we can actually see. {_coverage_line(obs)}"
+            "<code>@unabandoned/*</code> is where the abandoned dependencies our own "
+            "projects pull in get parked. What is rotting beneath them, which single "
+            "change removes the most of it, and how much of the picture we can "
+            f"actually see. {_coverage_line(obs)}"
         ),
         integrity=obs["integrity"],
         css=CSS, meta=obs["meta"],
@@ -319,6 +320,19 @@ def topology(obs: dict) -> str:
             '<p class="lede">⚠ ' + str(len(partial)) + " edge(s) were seen by only one "
             "of the two readers and are drawn dashed. In a healthy build there are none "
             "— the M2 check fails first.</p>"
+        )
+    # An empty band of consumer nodes must not read as "nothing depends on these".
+    # These forks exist *because* our projects depend on them; if none is named,
+    # the fact was never written down.
+    consumers = obs.get("consumer_edges") or []
+    if not any(not e.get("internal") for e in consumers):
+        note += (
+            '<p class="lede">⚠ No repository outside this org is named in any fork\'s '
+            f"<code>used-by</code> ({len(consumers)} entr"
+            f"{'y' if len(consumers) == 1 else 'ies'} name a sibling fork, which the "
+            "resolver already derives). The consumer row is empty because the fact is "
+            "<strong>unrecorded</strong> — not because no project of ours stands under "
+            "these trees.</p>"
         )
     return page(
         current="topology.html", title="topology",
@@ -902,7 +916,7 @@ def compare(report: dict, *, home: str = "../../index.html") -> str:
         + _fold(
             "Pinning", t["pinning"],
             "The org&rsquo;s own position is <b>fix forward, don&rsquo;t pin</b>: "
-            "pinning re-introduces exactly the rot this program exists to remove. "
+            "pinning re-introduces exactly the rot we forked the package to remove. "
             "The direction is named so the reader does not have to infer it.",
             table(["Package", "Direction", "Specifier"], pin_rows,
                   empty="No specifier changed between pinned and ranged."),

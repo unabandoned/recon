@@ -137,7 +137,7 @@ class GitHub:
             if not name:
                 continue
             if repo_obj.get("archived"):
-                continue  # archived repos are not part of the program's surface
+                continue  # archived repos are not part of the org's live surface
             result.discovered += 1
 
             text = self._contents(name, md.FILENAME)

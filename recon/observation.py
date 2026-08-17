@@ -218,6 +218,11 @@ def build_core(inp: Inputs) -> dict:
             consumer_edges.append({
                 "from": consumer, "to": fork.package,
                 "kind": "consumer", "derivation": "used-by",
+                # A `used-by` naming a sibling restates an edge the resolver
+                # already derives. Recorded rather than dropped, so the
+                # difference between "a project uses this" and "another fork
+                # does" is visible instead of averaged away.
+                "internal": consumer in fork_packages,
             })
     consumer_edges.sort(key=lambda e: (e["from"], e["to"]))
 
@@ -508,6 +513,9 @@ def run_checks(
         integrity.dependency_counts_agree(work["cross_checks"]),
         integrity.expected_siblings_present(work["per_fork"], fixtures.get("edges")),
         integrity.fork_edge_floor(totals["edges"], totals["forks"], EDGE_FLOOR),
+        integrity.consumers_are_named(
+            core["consumer_edges"], {f["package"] for f in core["forks"]}
+        ),
         integrity.uniformity("open_issues", issue_values),
         integrity.conservation(coverage),
         integrity.differential(

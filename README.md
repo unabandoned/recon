@@ -1,10 +1,12 @@
 # recon
 
-Dependency reconnaissance for the [`unabandoned`](https://github.com/unabandoned)
-maintained-fork program. It answers three questions:
+Dependency reconnaissance for [`unabandoned`](https://github.com/unabandoned) — the org where
+the abandoned dependencies our own projects pull in get forked and parked, instead of
+cluttering the organization those projects live in. It answers three questions:
 
-1. **What is rotting** beneath the `@unabandoned/*` forks?
-2. **Which single change removes the most of it?**
+1. **What is rotting** beneath the packages we have taken over?
+2. **Which single change removes the most of it** — and if we take over one more, how much
+   more comes with it?
 3. **How much of the picture can we actually see?**
 
 The third one is load-bearing. Every bug in this tool's history was a confident
@@ -42,7 +44,7 @@ every build and land on the **Coverage & health** page.
 | **M1** | Errors are a state, never a default | A failed fetch must reach the page as `unknown`, counted in every aggregate, carrying its reason |
 | **M2** | Independent double-derivation | Our manifest reader and **npm's own resolver** must agree on the `@unabandoned` edges; the registry and the lockfile must agree on every version's dependencies |
 | **M3** | Ground-truth fixtures | Edges, paths and counts a human asserted in [`fixtures/org.yml`](./fixtures/org.yml) must be reproduced by the build; asserting nothing warns rather than passes |
-| **M4** | Shape and uniformity invariants | An org of sibling-wired forks cannot have zero internal edges; a metric with a hard non-zero floor on every repo is a counted artifact; the coverage ledger must balance |
+| **M4** | Shape and uniformity invariants | An org of sibling-wired forks cannot have zero internal edges; a metric with a hard non-zero floor on every repo is a counted artifact; the coverage ledger must balance; an empty consumer row means unrecorded, not none |
 | **M5** | Differential vs the last snapshot | No headline aggregate may swing past its threshold without a human naming the change |
 
 Plus one reproducibility invariant: the current build is re-derived with the snapshot
@@ -56,11 +58,11 @@ entirely in our reader; npm's lockfile had the right answer the whole time.
 
 ## What it produces
 
-Seven pages, from one canonical `observation.json` that is simultaneously the data
+Eight pages, from one canonical `observation.json` that is simultaneously the data
 file and the history snapshot:
 
 **Overview** · **Forks** (a consumer catalog with tree grades) · **Work queue** ·
-**Packages** · **Topology** · **Changes** · **Coverage & health**
+**Packages** · **Topology** · **Intake** · **Changes** · **Coverage & health**
 
 Every aggregate shows its denominator. Every fact carries its provenance — the
 renderer takes fact-records, not values, so it *cannot* print a number whose origin
@@ -85,14 +87,16 @@ EMERGENCY  crypto-browserify   clears 22   score 55.0
 
 ## Status
 
-Phases 0–3 of the design are implemented: the correctness foundation, history and
-diff, the OSV advisory join with its emergency tier, and the dominator-based work
-queue. Phase 4 (dual runtime/dev trees, published-vs-HEAD deltas) and the intake tier
-are not built — see [`docs/implementation.md`](./docs/implementation.md).
+Phases 0–3 of the design are implemented, plus intake: the correctness foundation,
+history and diff, the OSV advisory join with its emergency tier, the dominator-based
+work queue, auditing a tree we do not own (including what taking it on would drag in
+and the onboarding prompt that follows), and comparing two repositories. Phase 4 (dual
+runtime/dev trees, published-vs-HEAD deltas) is not built — see
+[`docs/implementation.md`](./docs/implementation.md).
 
-The scripts still run from `unabandoned/.github`; nothing has been switched over yet,
-and the two will produce different numbers on purpose. Cutover is a deliberate step,
-not a side effect of merging this.
+Cutover is done: the old builder in `unabandoned/.github` has been removed and this
+repository publishes the dashboard. That repo still owns `validate_metadata.py`, which
+`reusable-ci` runs against every fork's `.unabandoned.yml`.
 
 Eight decisions still want a human:
 [`docs/redesign.md` §13](./docs/redesign.md#13-open-questions-needing-a-human-decision).
