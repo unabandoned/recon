@@ -320,3 +320,60 @@ class RepoSpecMustNotSilentlyReroot(unittest.TestCase):
                              "node_modules/a": {}, "node_modules/b": {}}}
         with self.assertRaises(ValueError):
             R.parse_lockfile(lock, "weird:spec")
+
+
+class MonorepoRootIsNotThePackageManifest(unittest.TestCase):
+    """regexper publishes from `packages/render`; its root is a private shell.
+
+    Reading the root as the fork's manifest gave M2 an empty manifest side, so
+    the real `@unabandoned/regexper-parser` edge showed up as lockfile-only and
+    failed the build every day.
+    """
+
+    FILES = {
+        "package.json": {"name": "regexper", "private": True,
+                         "workspaces": ["packages/*"]},
+        "packages/parser/package.json": {"name": "@unabandoned/regexper-parser"},
+        "packages/render/package.json": {
+            "name": "@unabandoned/regexper-render",
+            "dependencies": {"@unabandoned/regexper-parser": "1.0.2"},
+        },
+    }
+
+    def _client(self, files):
+        import json
+        from recon.github import GitHub
+
+        client = GitHub.__new__(GitHub)
+        client._org = "unabandoned"
+
+        def contents(repo, path):
+            obj = files.get(path)
+            return Fact.ok(json.dumps(obj) if obj is not None else None)
+
+        def get(path, *, params=None, absent_is_ok=False):
+            prefix = "/repos/unabandoned/regexper/contents/"
+            directory = path[len(prefix):]
+            members = {p.rsplit("/", 1)[0] for p in files if p.startswith(directory + "/")}
+            return Fact.ok([{"type": "dir", "path": m} for m in sorted(members)])
+
+        client._contents = contents
+        client.get = get
+        return client
+
+    def test_the_member_that_publishes_the_package_is_the_manifest(self):
+        fact = self._client(self.FILES)._package_manifest(
+            "regexper", "@unabandoned/regexper-render")
+        self.assertEqual(manifest_scope_edges(fact.payload),
+                         ["@unabandoned/regexper-parser"])
+
+    def test_a_root_that_is_the_package_is_read_as_is(self):
+        files = {"package.json": {"name": "@unabandoned/x",
+                                  "dependencies": {"@unabandoned/y": "^1"}}}
+        fact = self._client(files)._package_manifest("x", "@unabandoned/x")
+        self.assertEqual(manifest_scope_edges(fact.payload), ["@unabandoned/y"])
+
+    def test_no_matching_member_falls_back_to_the_root(self):
+        fact = self._client(self.FILES)._package_manifest(
+            "regexper", "@unabandoned/elsewhere")
+        self.assertEqual(fact.payload["name"], "regexper")

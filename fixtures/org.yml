@@ -39,14 +39,19 @@ edges:
 
 # Reachability assertions. `via` is the exact chain between the fork and the
 # package, exclusive of both. Omit `via` to assert only that the path exists.
+#
+# Retired: "@unabandoned/browserify reaches readable-stream via
+# @unabandoned/crypto-browserify -> hash-base". It held until
+# crypto-browserify 3.17.x replaced create-hash/create-hmac with
+# @unabandoned/hash.js, which removed hash-base from browserify's tree
+# entirely; every readable-stream it reaches now is the org's own fork.
+# The assertion did its job — fixing crypto-browserify closed browserify.
 paths:
-  # The fact the old flat-columns table hid: browserify does not consume
-  # browserify-sign at all. It inherits readable-stream through the org's own
-  # crypto-browserify fork — which is why fixing crypto-browserify closes
-  # browserify with it, and why the queue ranks crypto-browserify first.
+  # browserify signs only through the org's crypto-browserify fork, so a
+  # browserify-sign release reaches browserify by way of crypto-browserify.
   - fork: "@unabandoned/browserify"
-    package: readable-stream
-    via: ["@unabandoned/crypto-browserify", "hash-base"]
+    package: "@unabandoned/browserify-sign"
+    via: ["@unabandoned/crypto-browserify"]
 
 # Counted assertions. `metric` is a field on a fork row; `subject` is its repo
 # name. These are the direct machinery against the Renovate-dashboard miscount:
