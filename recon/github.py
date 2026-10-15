@@ -124,6 +124,56 @@ class GitHub:
                                source=fact.source, at=fact.fetched_at)
         return fact.map(lambda p: base64.b64decode(p["content"]).decode("utf-8"))
 
+    def _manifest_at(self, repo: str, path: str) -> Fact:
+        return self._contents(repo, path).map(
+            lambda text: json.loads(text) if text is not None else None
+        )
+
+    def _package_manifest(self, repo: str, package: str) -> Fact:
+        """The manifest that publishes `package`, not merely the repo root's.
+
+        A monorepo's root `package.json` is a private workspace shell that
+        declares nothing the published package depends on. Reading it as the
+        fork's manifest made M2 report every real edge as lockfile-only. When
+        the root is not the package, the workspace member whose `name` matches
+        is the manifest; a member that cannot be found leaves the root reading
+        in place, so the disagreement still surfaces rather than vanishing.
+        """
+        root = self._manifest_at(repo, "package.json")
+        if not root.is_ok or not isinstance(root.payload, dict):
+            return root
+        if root.payload.get("name") == package:
+            return root
+        workspaces = root.payload.get("workspaces")
+        if isinstance(workspaces, dict):
+            workspaces = workspaces.get("packages")
+        for member in self._workspace_dirs(repo, workspaces or []):
+            fact = self._manifest_at(repo, f"{member}/package.json")
+            if not fact.is_ok:
+                return fact
+            if isinstance(fact.payload, dict) and fact.payload.get("name") == package:
+                return fact
+        return root
+
+    def _workspace_dirs(self, repo: str, patterns: list) -> list[str]:
+        """Member directories for literal paths and single-level `dir/*` globs."""
+        dirs: list[str] = []
+        for pattern in patterns:
+            if not isinstance(pattern, str):
+                continue
+            pattern = pattern.rstrip("/")
+            if pattern.endswith("/*") and "*" not in pattern[:-2]:
+                listing = self.get(
+                    f"/repos/{self._org}/{repo}/contents/{pattern[:-2]}",
+                    absent_is_ok=True,
+                )
+                if listing.is_ok and isinstance(listing.payload, list):
+                    dirs.extend(e["path"] for e in listing.payload
+                                if e.get("type") == "dir" and e.get("path"))
+            elif "*" not in pattern:
+                dirs.append(pattern)
+        return dirs
+
     # -- discovery ----------------------------------------------------------
     def discover(self) -> tuple[Discovery, Fact]:
         """Every fork in the org, plus every repo deliberately left out and why."""
@@ -227,9 +277,7 @@ class GitHub:
         )
 
         release = self.get(f"/repos/{org}/{repo}/releases/latest", absent_is_ok=True)
-        manifest = self._contents(repo, "package.json").map(
-            lambda text: json.loads(text) if text is not None else None
-        )
+        manifest = self._package_manifest(repo, data.get("package", repo))
         head = self.get(f"/repos/{org}/{repo}/commits/{branch}").map(
             lambda c: c.get("sha") if isinstance(c, dict) else None
         )
